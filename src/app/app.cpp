@@ -275,7 +275,9 @@ void App::create_instrument(Instrument kind, int instance, int x, int y)
     if (!window->valid()) {
         return;
     }
-    instrument->load(load_settings(settings_name(instrument->id())));
+    if (screenshots_.empty()) {
+        instrument->load(load_settings(settings_name(instrument->id())));   // screenshots: command line only
+    }
     InstrumentBase *raw = instrument.get();
     window->set_draw([raw](ui::Window &w) { raw->draw(w); });
     instruments_.push_back(OpenInstrument{std::move(instrument), std::move(window)});

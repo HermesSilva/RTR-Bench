@@ -50,6 +50,30 @@ struct ProbeCapabilities {
 
 enum class ProbeState { Disconnected, Connecting, Connected };
 
+// What a generator output produces. Digital kinds drive a level pattern;
+// analog kinds drive volts (analog outputs only); modulations are analog.
+enum class Waveform {
+    Off, Low, High, Clock, Pwm, Burst, Sweep,                  // digital
+    Sine, Triangle, Sawtooth, RampDown, Noise, Dc,             // analog
+    AM, FM, PM, PwmMod                                         // modulations (analog carrier)
+};
+constexpr int waveform_count = 17;
+const char *waveform_name(Waveform kind);     // "SINE"
+const char *waveform_group(Waveform kind);    // "ANALOG"
+bool waveform_is_analog(Waveform kind);
+
+struct WaveSpec {
+    Waveform kind = Waveform::Off;
+    double freq_hz = 1000.0;        // carrier / clock frequency
+    int duty = 50;                  // percent (PWM, PWM MOD base)
+    int burst_count = 10;           // pulses per burst, one burst per second
+    double sweep_end_hz = 10000.0;  // sweep from freq_hz to this, over one second
+    double amplitude_v = 1.0;       // peak (analog)
+    double offset_v = 0.0;          // analog
+    double mod_freq_hz = 100.0;     // modulations
+    double mod_depth = 0.5;         // 0..1 (AM depth, FM deviation as a fraction, PM in half-turns)
+};
+
 struct ProbeStats {
     uint64_t events = 0;
     uint64_t bytes = 0;
@@ -92,6 +116,9 @@ public:
         (void)period_ns;
         (void)high_ns;
     }
+    // Drives a waveform on an input port. Digital kinds work on any drivable
+    // port; analog kinds need an analog output (demo AO ports, ADALM2000).
+    virtual void drive_waveform(int port, const WaveSpec &spec);
 };
 
 }  // namespace core

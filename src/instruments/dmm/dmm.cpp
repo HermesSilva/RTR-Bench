@@ -243,7 +243,8 @@ void Multimeter::fit_window(ui::Window &window)
     int width = 0;
     int height = 0;
     window.size(width, height);
-    int wanted = static_cast<int>(130.0f + 66.0f * static_cast<float>(tips_.size()) + 40.0f);
+    int rows = (static_cast<int>(tips_.size()) + 1) / 2;
+    int wanted = static_cast<int>(130.0f + 72.0f * static_cast<float>(rows) + 40.0f);
     if (height != wanted) {
         window.set_size(width, wanted);
     }
@@ -315,18 +316,22 @@ void Multimeter::draw(ui::Window &window)
         }
     }
     ImFont *small = ui::fonts().small;
-    draw->AddText(small, small->FontSize, ImVec2(x + 3.0f * (kw + gap) + 4.0f * s, y + 4.0f * s), t.label_dim,
-                  "one row per probe tip: function, jack, reading");
     y += key_h + 18.0f * s;
 
-    // One mini module per tip: [x] [function] [jack+port] [display: value unit] [HOLD] [min/max/avg]
+    // One mini module per tip, two per row: [x] [function] [jack+port] [display] [HOLD]
+    const float row_h = 50.0f * s;
+    const float module_gap = 8.0f * s;
+    const float mw = (frame.panel_max.x - frame.panel_min.x - module_gap) / 2.0f;
+    const float rows_top = y;
     for (int i = 0; i < static_cast<int>(tips_.size()); i++) {
         Tip &tip = *tips_[static_cast<size_t>(i)];
-        float row_h = 50.0f * s;
+        float mx = x + static_cast<float>(i % 2) * (mw + module_gap);
+        int row = i / 2;
+        y = rows_top + static_cast<float>(row) * (row_h + 22.0f * s);
         char title[32];
         std::snprintf(title, sizeof(title), "TIP %d", i + 1);
-        ui::group_frame(ImVec2(x, y - 2.0f * s), ImVec2(frame.panel_max.x, y + row_h + 2.0f * s), title, s);
-        float rx = x + 10.0f * s;
+        ui::group_frame(ImVec2(mx, y - 2.0f * s), ImVec2(mx + mw, y + row_h + 2.0f * s), title, s);
+        float rx = mx + 10.0f * s;
         char id[32];
         uint32_t colour = ui::channel_colour(i % ui::channel_count);
         // Remove key.
@@ -401,17 +406,13 @@ void Multimeter::draw(ui::Window &window)
         if (ui::key(id, "HOLD", ImVec2(rx, y + (row_h - key_h) * 0.5f), ImVec2(48.0f * s, key_h), tip.hold, t.led_warn, s)) {
             tip.hold = !tip.hold;
         }
-        rx += 48.0f * s + gap;
         if (tip.samples > 0 && tip.function != Function::Level) {
+            // Statistics in the corner of the display.
             char stats[96];
             std::snprintf(stats, sizeof(stats), "min %.3g  max %.3g  avg %.3g", tip.min, tip.max,
                           tip.sum / static_cast<double>(tip.samples));
-            draw->AddText(small, small->FontSize, ImVec2(rx, y + row_h * 0.5f - small->FontSize * 0.5f), t.label_dim, stats);
-        } else if (tip.port < 0) {
-            draw->AddText(small, small->FontSize, ImVec2(rx, y + row_h * 0.5f - small->FontSize * 0.5f), t.label_dim,
-                          "click the jack, then a port on the rack");
+            draw->AddText(small, small->FontSize, ImVec2(dmin.x + 6.0f * s, dmin.y + 3.0f * s), t.readout_dim, stats);
         }
-        y += row_h + 16.0f * s;
     }
     (void)inner_w;
     ui::end_chassis();

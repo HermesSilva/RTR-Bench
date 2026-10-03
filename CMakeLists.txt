@@ -77,6 +77,7 @@ find_package(OpenGL REQUIRED)
 
 # Core and probes: no window, so the tests link them too.
 add_library(rtr-core STATIC
+    src/core/probe.cpp
     src/core/scope_protocol.cpp
     src/core/port_state.cpp
     src/core/trace.cpp

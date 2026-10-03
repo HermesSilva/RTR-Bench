@@ -89,7 +89,8 @@ void Supply::fit_window(ui::Window &window)
     int width = 0;
     int height = 0;
     window.size(width, height);
-    int wanted = static_cast<int>(130.0f + (row_h + 10.0f) * static_cast<float>(outputs_.size()) + 40.0f);
+    int rows = (static_cast<int>(outputs_.size()) + 1) / 2;
+    int wanted = static_cast<int>(130.0f + (row_h + 22.0f) * static_cast<float>(rows) + 30.0f);
     if (height != wanted) {
         window.set_size(width, wanted);
     }
@@ -122,20 +123,23 @@ void Supply::draw(ui::Window &window)
                 static_cast<int>(outputs_.size()) < max_outputs)) {
         add_output();
     }
-    draw->AddText(small, small->FontSize, ImVec2(x + 98.0f * s, y + 4.0f * s), can_drive ? t.label_dim : t.led_stop,
-                  can_drive ? (analog_target ? "real volts on the target"
-                                             : "logic target: the output is high from 1.8 V, low below")
-                            : "this probe cannot drive: the emulator needs the version 2 probe (qemu-pi4 fork)");
     y += key_h + 18.0f * s;
 
+    // One mini module per output, two per row.
+    const float module_gap = 8.0f * s;
+    const float mw = (frame.panel_max.x - frame.panel_min.x - module_gap) / 2.0f;
+    const float rows_top = y;
     for (int i = 0; i < static_cast<int>(outputs_.size()); i++) {
         Output &o = *outputs_[static_cast<size_t>(i)];
         float rh = row_h * s;
+        float mx = x + static_cast<float>(i % 2) * (mw + module_gap);
+        int row = i / 2;
+        y = rows_top + static_cast<float>(row) * (rh + 22.0f * s);
         char title[32];
         std::snprintf(title, sizeof(title), "OUTPUT %d", i + 1);
-        ui::group_frame(ImVec2(x, y - 2.0f * s), ImVec2(frame.panel_max.x, y + rh + 2.0f * s), title, s);
+        ui::group_frame(ImVec2(mx, y - 2.0f * s), ImVec2(mx + mw, y + rh + 2.0f * s), title, s);
         float cy = y + rh * 0.5f;
-        float rx = x + 10.0f * s;
+        float rx = mx + 10.0f * s;
         uint32_t colour = ui::channel_colour(i % ui::channel_count);
         char id[32];
         std::snprintf(id, sizeof(id), "##rm%d", i);
@@ -202,21 +206,19 @@ void Supply::draw(ui::Window &window)
         // What the target sees: on a logic target the level the set voltage means.
         float shown = !o.on ? 0.0f : (analog_target ? o.volts : (o.volts >= logic_threshold ? 3.3f : 0.0f));
         std::snprintf(volts, sizeof(volts), "%.2f", static_cast<double>(shown));
-        display(volts, "V", o.on ? colour : t.readout_dim, 118.0f * s);
-        display("0.000", "A", o.on ? colour : t.readout_dim, 118.0f * s);
+        display(volts, "V", o.on ? colour : t.readout_dim, 104.0f * s);
+        display("0.000", "A", o.on ? colour : t.readout_dim, 104.0f * s);
+        // The set voltage, small, under the SET knob.
         char set_text[24];
-        std::snprintf(set_text, sizeof(set_text), "set %.1f V", static_cast<double>(o.volts));
-        draw->AddText(small, small->FontSize, ImVec2(rx, cy - small->FontSize - 2.0f * s), t.label_dim, set_text);
-        draw->AddText(small, small->FontSize, ImVec2(rx, cy + 2.0f * s), t.label_dim,
-                      o.on ? (o.volts >= logic_threshold ? "level high" : "level low") : "off");
-        rx += 70.0f * s;
+        std::snprintf(set_text, sizeof(set_text), "%.1f V", static_cast<double>(o.volts));
+        draw->AddText(small, small->FontSize, ImVec2(mx + 10.0f * s + 20.0f * s + gap + 66.0f * s - 4.0f * s, cy + kr + 12.0f * s),
+                      t.label_dim, set_text);
         std::snprintf(id, sizeof(id), "##out%d", i);
-        if (ui::key(id, o.on ? "OUTPUT ON" : "OUTPUT", ImVec2(rx, cy - key_h * 0.5f), ImVec2(80.0f * s, key_h), o.on,
-                    t.led_run, s, o.port >= 0 && drivable && can_drive)) {
+        if (ui::key(id, o.on ? "ON" : "OUTPUT", ImVec2(rx, cy - key_h * 0.5f), ImVec2(74.0f * s, key_h), o.on, t.led_run, s,
+                    o.port >= 0 && drivable && can_drive)) {
             o.on = !o.on;
             o.dirty = true;
         }
-        y += rh + 14.0f * s;
     }
 
     auto now = std::chrono::steady_clock::now();

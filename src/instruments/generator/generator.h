@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // RTR-Bench - the generator: as many outputs as needed (the ADD key makes
-// one more), each a digital pattern on an input port of the target: a
-// level, a clock or a PWM, with frequency and duty knobs and an OUTPUT key.
-// The pattern is generated at the target side (the probe), so its timing
-// does not depend on the bench.
+// one more), two mini modules per row, each with a waveform dropdown
+// (levels, digital patterns, analog waves, modulations), three contextual
+// knobs and an OUTPUT key. The waveform is produced by the probe, at the
+// target side.
 #pragma once
 
 #include <imgui.h>
@@ -30,22 +30,24 @@ public:
     void save(nlohmann::json &out) const override;
     void load(const nlohmann::json &in) override;
 
-    enum class Mode { Low, High, Clock, Pwm };
     static constexpr int max_outputs = 8;
 
 private:
     struct Output {
         int port = -1;
         bool on = false;
-        Mode mode = Mode::Clock;
-        int freq_step = 9;     // index into the 1-2-5 frequency steps (1 kHz)
-        int duty = 50;         // percent, PWM only
-        bool dirty = true;     // the probe must be told again
+        core::WaveSpec spec;
+        int freq_step = 9;        // 1-2-5 index (1 kHz)
+        int mod_step = 6;         // 1-2-5 index of the modulation frequency (100 Hz)
+        int sweep_step = 12;      // 1-2-5 index of the sweep end (10 kHz)
+        bool dirty = true;
     };
     void add_output();
     void remove_output(int index);
-    void apply(Output &o, int index);
+    void apply(Output &o);
     void fit_window(ui::Window &window);
+    void draw_module(ui::Window &window, int index, ImVec2 min, ImVec2 max);
+    void draw_waveform_combo(Output &o, int index, ImVec2 pos, ImVec2 size, bool analog_port, float scale);
 
     App &app_;
     std::vector<std::unique_ptr<Output>> outputs_;

@@ -39,13 +39,17 @@ public:
     void request_snapshot() override;
     void drive(int port, int level) override;
     void drive_pattern(int port, int64_t period_ns, int64_t high_ns) override;
+    void drive_waveform(int port, const core::WaveSpec &spec) override;
 
     static constexpr int digital_ports = 9;
     static constexpr int analog_ports = 4;
     // IN0..IN3: inputs the bench drives (generator, supply); what is driven
     // shows up in the stream like any other port, a loopback.
     static constexpr int input_ports = 4;
+    // AO0..AO1: analog outputs the generator drives, looped back as samples.
+    static constexpr int analog_outputs = 2;
     static constexpr int64_t analog_dt_ns = 1000;   // 1 MS/s
+    static constexpr int analog_output_first = digital_ports + analog_ports + input_ports;
 
 private:
     void run();
@@ -73,10 +77,14 @@ private:
         int level = 0;
         int64_t period_ns = 0;   // 0: static level
         int64_t high_ns = 0;
+        int burst = 0;           // pulses per burst, one burst per second (0: continuous)
+        double sweep_end_hz = 0.0;   // sweep end frequency (0: no sweep)
     };
     std::mutex drive_mutex_;
     Drive drives_[input_ports];
     bool drive_changed_[input_ports] = {};
+    core::WaveSpec waves_[analog_outputs];   // analog outputs, generated as samples
+    double wave_phase_[analog_outputs] = {};
 };
 
 }  // namespace probes
