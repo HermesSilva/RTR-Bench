@@ -62,5 +62,13 @@ the requirements of the area you touch before changing anything.
   and the README shows them. Use `scripts\screenshot.ps1` so the captures
   have the same size and theme set. A release with changed screens and old
   screenshots is not finished.
-- Tag `vMAJOR.MINOR.PATCH`; the README "Current state" section says what the
-  release does and does not do.
+- Version is `0.1.<build>`: `build-number.txt` is incremented by every
+  local build (`scripts\build.ps1`, `scripts/build.sh`) and committed; CI
+  builds the committed number (`-KeepNumber` / `RTR_KEEP_BUILD_NUMBER=1`)
+  and publishes release `v0.1.<build>` on every push to `master`
+  (`.github/workflows/build.yml`). The README links to the latest release.
+- The README "Current state" section says what the release does and does
+  not do.
+- Settings and the position of every window are persisted in `.RTR-Bench`;
+  a new instrument must implement `save`/`load` and the rack must restore
+  it at its place.

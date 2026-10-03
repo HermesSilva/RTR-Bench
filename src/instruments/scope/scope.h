@@ -30,6 +30,8 @@ public:
     void feed(const std::vector<core::DigitalEvent> &events) override;
     void feed_analog(const std::vector<core::AnalogBlock> &blocks) override;
     void wiring_changed() override;
+    void save(nlohmann::json &out) const override;
+    void load(const nlohmann::json &in) override;
 
     static constexpr int channels = 4;       // wired inputs
     static constexpr int math_channels = 2;  // M1, M2: computed from the inputs

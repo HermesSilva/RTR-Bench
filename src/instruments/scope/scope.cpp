@@ -69,6 +69,80 @@ Scope::Scope(App &app) : app_(app)
 }
 
 // Math channels are computed over the current view, every frame.
+void Scope::save(nlohmann::json &out) const
+{
+    const core::ScopeSettings &st = engine_.settings;
+    out["time_step"] = st.time_step;
+    out["position_ns"] = st.position_ns;
+    out["trigger_channel"] = st.trigger_channel;
+    out["trigger_slope"] = static_cast<int>(st.slope);
+    out["trigger_mode"] = static_cast<int>(st.mode);
+    out["trigger_level"] = trigger_level_;
+    out["selected"] = selected_;
+    out["cursors"] = cursors_;
+    out["cursor_a"] = cursor_a_;
+    out["cursor_b"] = cursor_b_;
+    out["channels"] = nlohmann::json::array();
+    for (const Channel &c : ch_) {
+        nlohmann::json j;
+        j["visible"] = c.visible;
+        j["volts_step"] = c.volts_step;
+        j["offset_div"] = c.offset_div;
+        if (c.math) {
+            j["enabled"] = c.enabled;
+            j["formula"] = core::formulas()[static_cast<size_t>(c.formula)].name;
+            j["inputs"] = {c.input[0], c.input[1], c.input[2], c.input[3]};
+        }
+        out["channels"].push_back(j);
+    }
+}
+
+void Scope::load(const nlohmann::json &in)
+{
+    core::ScopeSettings &st = engine_.settings;
+    int max_step = static_cast<int>(core::time_per_div_steps().size()) - 1;
+    st.time_step = std::clamp(in.value("time_step", st.time_step), 0, max_step);
+    st.position_ns = in.value("position_ns", st.position_ns);
+    st.trigger_channel = std::clamp(in.value("trigger_channel", st.trigger_channel), 0, channels - 1);
+    st.slope = static_cast<core::TriggerSlope>(std::clamp(in.value("trigger_slope", 0), 0, 2));
+    st.mode = static_cast<core::TriggerMode>(std::clamp(in.value("trigger_mode", 0), 0, 2));
+    trigger_level_ = in.value("trigger_level", trigger_level_);
+    selected_ = std::clamp(in.value("selected", 0), 0, all_channels - 1);
+    cursors_ = in.value("cursors", false);
+    cursor_a_ = std::clamp(in.value("cursor_a", 0.3), 0.0, 1.0);
+    cursor_b_ = std::clamp(in.value("cursor_b", 0.7), 0.0, 1.0);
+    if (!in.contains("channels") || !in["channels"].is_array()) {
+        return;
+    }
+    int vmax = static_cast<int>(core::volts_per_div_steps().size()) - 1;
+    size_t n = std::min(in["channels"].size(), ch_.size());
+    for (size_t i = 0; i < n; i++) {
+        const nlohmann::json &j = in["channels"][i];
+        if (!j.is_object()) {
+            continue;
+        }
+        Channel &c = ch_[i];
+        c.visible = j.value("visible", true);
+        c.volts_step = std::clamp(j.value("volts_step", c.volts_step), 0, vmax);
+        c.offset_div = std::clamp(j.value("offset_div", 0.0f), -4.0f, 4.0f);
+        if (c.math) {
+            c.enabled = j.value("enabled", false);
+            std::string name = j.value("formula", "");
+            const std::vector<core::Formula> &list = core::formulas();
+            for (size_t k = 0; k < list.size(); k++) {
+                if (name == list[k].name) {
+                    c.formula = static_cast<int>(k);
+                }
+            }
+            if (j.contains("inputs") && j["inputs"].is_array()) {
+                for (size_t k = 0; k < j["inputs"].size() && k < core::formula_inputs_max; k++) {
+                    c.input[k] = std::clamp(j["inputs"][k].get<int>(), 0, all_channels - 1);
+                }
+            }
+        }
+    }
+}
+
 // Math channels are computed over the current view, every frame, M1 before
 // M2 (so M2 may use M1; M1 using M2 sees the previous frame).
 void Scope::evaluate_math()

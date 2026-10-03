@@ -64,7 +64,7 @@ void Rack::draw(ui::Window &window)
 {
     ui::ChassisSpec chassis;
     chassis.model = "RACK-1";
-    chassis.title = "Mini Rack";
+    chassis.title = "Mini Rack   v" RTR_BENCH_VERSION;
     chassis.corner = 12.0f;
     ui::ChassisFrame frame = ui::begin_chassis(window, chassis);
 

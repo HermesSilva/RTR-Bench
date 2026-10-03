@@ -1,0 +1,91 @@
+# RTR-Bench - build, test and publish on every push to master.
+#
+# Both platforms build the committed build number (version 0.1.<build>, see
+# build-number.txt), run the windowless tests, and the release job publishes
+# the two executables as release v0.1.<build>. The README links to the
+# "latest" release downloads.
+name: build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (clang, Ninja)
+        shell: pwsh
+        run: scripts\build.ps1 -KeepNumber -NoTidy
+      - name: Test
+        shell: pwsh
+        run: scripts\test.ps1
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = (Get-Content build-number.txt -Raw).Trim()
+          New-Item -ItemType Directory -Path dist | Out-Null
+          Copy-Item build\rtr-bench.exe, build\rtr-probe-dump.exe, LICENSE, THIRD_PARTY.md, README.md dist\
+          Compress-Archive -Path dist\* -DestinationPath "rtr-bench-windows-x64.zip"
+          "RTR_VERSION=0.1.$version" >> $env:GITHUB_ENV
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rtr-bench-windows-x64
+          path: rtr-bench-windows-x64.zip
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build libgl-dev libx11-dev libxrandr-dev \
+            libxinerama-dev libxcursor-dev libxi-dev libwayland-dev libxkbcommon-dev wayland-protocols pkg-config
+      - name: Build
+        run: RTR_KEEP_BUILD_NUMBER=1 bash scripts/build.sh --no-tidy
+      - name: Test
+        run: ./build/tests/rtr-bench-tests
+      - name: Package
+        run: |
+          mkdir dist
+          cp build/rtr-bench build/rtr-probe-dump LICENSE THIRD_PARTY.md README.md dist/
+          tar -C dist -czf rtr-bench-linux-x64.tar.gz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rtr-bench-linux-x64
+          path: rtr-bench-linux-x64.tar.gz
+
+  release:
+    needs: [windows, linux]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Version
+        run: echo "RTR_VERSION=0.1.$(tr -d '[:space:]' < build-number.txt)" >> "$GITHUB_ENV"
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.RTR_VERSION }}
+          name: RTR-Bench ${{ env.RTR_VERSION }}
+          body: |
+            Build ${{ env.RTR_VERSION }} of RTR-Bench, from commit ${{ github.sha }}.
+
+            - `rtr-bench-windows-x64.zip`: Windows 10/11, x64
+            - `rtr-bench-linux-x64.tar.gz`: Linux x64 (X11 or Wayland, OpenGL 3.3)
+
+            Portable: unpack anywhere and run; settings go to a `.RTR-Bench` folder next to the executable.
+          files: |
+            artifacts/rtr-bench-windows-x64/rtr-bench-windows-x64.zip
+            artifacts/rtr-bench-linux-x64/rtr-bench-linux-x64.tar.gz

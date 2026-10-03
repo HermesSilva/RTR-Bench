@@ -11,8 +11,21 @@ The same screens, the same recordings and the same measurements apply to both, s
 
 The project is at an early stage. The [Current state](#current-state) section says exactly what works.
 
+## Download
+
+[![build](https://github.com/HermesSilva/RTR-Bench/actions/workflows/build.yml/badge.svg)](https://github.com/HermesSilva/RTR-Bench/actions/workflows/build.yml)
+
+Every push to `master` is built and tested on Windows and Linux and published as a release `v0.1.<build>`; the build number comes from [`build-number.txt`](build-number.txt), incremented by every local build.
+
+- Windows x64: [rtr-bench-windows-x64.zip](https://github.com/HermesSilva/RTR-Bench/releases/latest/download/rtr-bench-windows-x64.zip)
+- Linux x64: [rtr-bench-linux-x64.tar.gz](https://github.com/HermesSilva/RTR-Bench/releases/latest/download/rtr-bench-linux-x64.tar.gz)
+- All releases: [github.com/HermesSilva/RTR-Bench/releases](https://github.com/HermesSilva/RTR-Bench/releases)
+
+Portable: unpack anywhere and run `rtr-bench`. Everything it writes (settings in JSON, screenshots) goes to a `.RTR-Bench` folder next to the executable; delete the folder to start afresh.
+
 ## Contents
 
+- [Download](#download)
 - [Design](#design)
 - [Current state](#current-state)
 - [Repository layout](#repository-layout)
@@ -60,9 +73,10 @@ Stages 0 to 3 of the plan: the rack, the mixed-signal oscilloscope and the wires
 - The **oscilloscope**: four channels, digital or analog according to the port wired; 1-2-5 time base from 10 ns/div to 10 s/div, position; volts/div (10 mV to 10 V) and offset per analog channel; trigger by channel, slope and mode (auto, normal, single), with a level knob for an analog source; run/stop; memory of a million transitions or samples per channel, dense regions drawn as bands or min/max columns; cursors with Δt and 1/Δt; measurements of the selected channel (digital: frequency, period, widths, duty, edges; analog: Vpp, Vmax, Vmin, Vmean, Vrms, frequency, period); keyboard (space, S, C, arrows, + −).
 - **Math channels** M1 and M2: new channels computed from a formula over up to four variables A–D, each variable any input channel or the other math channel. The formula comes from a combo grouped by kind and number of inputs — digital (NOT, AND, OR, XOR, NAND, NOR, XNOR, A AND NOT B, SR and D latches, three-input AND/OR/XOR, majority, gating, multiplexer, four-input AND/OR, parity, 2-of-4, (A AND B) OR (C AND D)) and analog (negation, absolute value, square, sum, difference, product, quotient, average, min, max, three- and four-input sums and averages, A×B − C×D, (A − B)/(C − D)). Variables of the wrong kind are swapped for the next wired channel of the right kind. Math channels have measurements, cursors, volts/div and offset like the others; the readout line shows the expression ("M1 = CH1 XOR CH2").
 - `rtr-probe-dump`: console tool that prints what the probe sends; `rtr-bench --probe demo --open scope --wire scope:1=9 --math "1=A XOR B" --screenshot scope=FILE.png` starts on a probe, opens, wires, enables a formula and saves a window with its transparent margins (`scripts\screenshot.ps1`).
+- **Settings**: theme, probe, the position of every window, the open instruments, the wires and every scope setting (time base, trigger, channels, math) are saved in `.RTR-Bench/bench.json` and `scope.json` next to the executable, every ten seconds and on exit, and restored at the next start. The command line wins over the saved state, and a screenshot run neither reads nor writes it.
 - Windowless tests (Catch2): protocol parser, event queue, port state, trace ring, trigger search, measurements, time base, formulas, themes.
 
-Not there yet: the other instruments, settings persistence.
+Not there yet: the other instruments (logic analyzer, generator, supply, multimeter).
 
 ## Repository layout
 

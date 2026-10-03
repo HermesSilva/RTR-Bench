@@ -41,7 +41,11 @@ public:
     void screenshot(const std::string &window_name, const std::string &path);
     void set_screenshot_delay(double delay_seconds) { screenshot_delay_ = delay_seconds; }
     // Start-up actions from the command line: probe, open an instrument, make a wire.
-    void probe_at_start(ProbeKind kind) { probe_kind_ = kind; }
+    void probe_at_start(ProbeKind kind)
+    {
+        probe_kind_ = kind;
+        probe_from_command_line_ = true;
+    }
     void open_at_start(Instrument kind) { open_at_start_.push_back(kind); }
     void wire_at_start(Instrument kind, int channel, int port) { wires_at_start_.push_back(Wire{kind, channel, port}); }
     // Math channel presets for the scope: (channel 1 or 2, formula name).
@@ -100,6 +104,7 @@ private:
 
     std::unique_ptr<core::Probe> probe_;
     ProbeKind probe_kind_ = ProbeKind::Emulator;
+    bool probe_from_command_line_ = false;
     bool switch_pending_ = false;
     ProbeKind switch_to_ = ProbeKind::Emulator;
     core::PortState ports_{28};
@@ -162,6 +167,20 @@ private:
     void request_bench_capture();
     bool collect_bench_capture();
     void write_bench_capture(const std::string &path);
+
+    // Settings: bench.json (theme, probe, windows, wires) and one file per
+    // instrument, read at start and written on exit and every few seconds.
+    void load_bench_settings();
+    void save_bench_settings();
+    std::chrono::steady_clock::time_point last_save_time_;
+    struct SavedWindow {
+        Instrument kind;
+        int x;
+        int y;
+    };
+    std::vector<SavedWindow> saved_instruments_;   // from bench.json, applied when opened
+    int rack_x_ = 40;
+    int rack_y_ = 40;
     void begin_anchors();
     void update_overlays();
     Overlay &overlay_slot(size_t index);

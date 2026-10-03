@@ -6,11 +6,18 @@ comentários, scripts e README em inglês. Repositório próprio
 `D:\Tootega\Source\RTR-SO\RTR-Bench` (dentro da pasta do RTR-OS por
 conveniência; ignorada pelo git do RTR-OS).
 
-Estado: **etapas 0 e 1 feitas** (2026-10-03): janela recortada, `Probe`,
-sonda do emulador, rack conectado ao qemu-pi4 com as portas vivas, testes.
-Verificado no Windows; no Linux compila e os testes passam (janela não vista:
-WSLg sem cliente RDP na sessão). Observação do protocolo: o chardev do QEMU
-aceita um cliente por vez.
+Estado (2026-10-03): **etapas 0 a 3 feitas** — janela recortada, `Probe`,
+sondas do emulador e de demonstração (sinais sintéticos com analógico),
+rack com portas vivas e tecla WIRES, osciloscópio misto (digital + analógico,
+trigger, cursores, medições, canais MATH com fórmulas de 1 a 4 variáveis),
+fios pelo desktop (janelas de sobreposição, escondidas sem foco),
+persistência em `.RTR-Bench` (bench.json, scope.json), captura composta
+(`--screenshot bench=`), versão `0.1.<build>` com `build-number.txt`, CD no
+GitHub Actions (Windows + Linux, release por push). Verificado no Windows;
+no Linux compila e os testes passam (janela não vista: WSLg sem cliente RDP
+na sessão). Observação do protocolo: o chardev do QEMU aceita um cliente por
+vez. Próximos: multímetro (etapa 4), sonda v2 com injeção no fork do QEMU +
+gerador + fonte (5), analisador lógico (6), gravação/replay (7), M2k (8).
 
 ## 1. Decisões tomadas
 

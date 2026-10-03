@@ -3,10 +3,12 @@
 #   -Clean    removes build\ first
 #   -Debug    debug build (default: Release)
 #   -NoTidy   skips clang-tidy
+#   -KeepNumber  does not increment build-number.txt (CI builds the committed number)
 param(
     [switch]$Clean,
     [switch]$Debug,
-    [switch]$NoTidy
+    [switch]$NoTidy,
+    [switch]$KeepNumber
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,6 +36,15 @@ if (-not $env:VCToolsInstallDir) {
 
 $type = if ($Debug) { 'Debug' } else { 'Release' }
 $tidy = if ($NoTidy) { 'OFF' } else { 'ON' }
+
+# Every build gets the next build number (version 0.1.<build>), unless the
+# caller (CI) asks to build the committed number as it is.
+if (-not $KeepNumber) {
+    $numberFile = Join-Path $root 'build-number.txt'
+    $number = [int](Get-Content $numberFile -Raw).Trim() + 1
+    [System.IO.File]::WriteAllText($numberFile, "$number`n")
+    Write-Output "build $number"
+}
 
 cmake -S $root -B $build -G Ninja `
     "-DCMAKE_BUILD_TYPE=$type" `

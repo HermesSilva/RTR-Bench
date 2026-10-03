@@ -30,6 +30,14 @@ for arg in "$@"; do
     esac
 done
 
+# Every build gets the next build number (version 0.1.<build>), unless the
+# caller (CI) asks to build the committed number as it is.
+if [ -z "${RTR_KEEP_BUILD_NUMBER:-}" ]; then
+    NUMBER=$(($(tr -d '[:space:]' < "$ROOT/build-number.txt") + 1))
+    printf '%s\n' "$NUMBER" > "$ROOT/build-number.txt"
+    echo "build $NUMBER"
+fi
+
 cmake -S "$ROOT" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE="$TYPE" -DRTR_BENCH_TIDY="$TIDY" \
     -DCMAKE_C_COMPILER="$CC" -DCMAKE_CXX_COMPILER="$CXX"
 cmake --build "$BUILD"

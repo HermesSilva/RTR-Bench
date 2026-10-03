@@ -7,6 +7,8 @@
 #include <cstdint>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
 #include "core/probe.h"
 
 namespace ui {
@@ -30,6 +32,9 @@ public:
     virtual void feed_analog(const std::vector<core::AnalogBlock> &blocks) { (void)blocks; }
     // The wiring changed (a channel got or lost its port).
     virtual void wiring_changed() {}
+    // Settings of the instrument (its own JSON file, see app/settings.h).
+    virtual void save(nlohmann::json &out) const { (void)out; }
+    virtual void load(const nlohmann::json &in) { (void)in; }
 };
 
 }  // namespace app

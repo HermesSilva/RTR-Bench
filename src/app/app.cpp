@@ -6,6 +6,7 @@
 
 #include <imgui.h>
 
+#include "app/settings.h"
 #include "instruments/scope/scope.h"
 #include "ui/png.h"
 #include "ui/theme.h"
@@ -88,8 +89,8 @@ void App::open_rack()
     spec.title = "RTR-Bench Rack";
     spec.width = 1180;
     spec.height = 200;
-    spec.x = 40;
-    spec.y = 40;
+    spec.x = rack_x_;
+    spec.y = rack_y_;
     rack_window_ = std::make_unique<ui::Window>(spec);
     if (!rack_window_->valid()) {
         std::fprintf(stderr, "rtr-bench: cannot create the rack window\n");
@@ -161,10 +162,21 @@ void App::create_instrument(Instrument kind)
     default:
         return;  // not built yet
     }
+    for (const SavedWindow &saved : saved_instruments_) {
+        if (saved.kind == kind) {
+            spec.x = saved.x;
+            spec.y = saved.y;
+        }
+    }
     auto window = std::make_unique<ui::Window>(spec);
     if (!window->valid()) {
         return;
     }
+    std::string file = instrument_name(kind);
+    for (char &c : file) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    instrument->load(load_settings(file));
     InstrumentBase *raw = instrument.get();
     window->set_draw([raw](ui::Window &w) { raw->draw(w); });
     instruments_.push_back(OpenInstrument{std::move(instrument), std::move(window)});
@@ -216,6 +228,9 @@ uint32_t App::port_wire_colour(int port) const
 
 void App::make_wire(Instrument instrument, int channel, int port)
 {
+    if (port < 0 || static_cast<size_t>(port) >= probe_->ports().size() || channel < 0) {
+        return;
+    }
     unwire(instrument, channel);
     wires_.push_back(Wire{instrument, channel, port});
     selected_port_ = -1;
@@ -439,6 +454,103 @@ void App::update_overlays()
     }
 }
 
+// ---- settings -------------------------------------------------------------
+
+namespace {
+
+const char *probe_name(App::ProbeKind kind)
+{
+    return kind == App::ProbeKind::Demo ? "demo" : "emulator";
+}
+
+const char *theme_name(ui::ThemeKind kind)
+{
+    return kind == ui::ThemeKind::Light ? "light" : kind == ui::ThemeKind::Amber ? "amber" : "dark";
+}
+
+bool instrument_from_name(const std::string &name, Instrument &kind)
+{
+    const Instrument all[] = {Instrument::Scope, Instrument::Logic, Instrument::Generator, Instrument::Supply,
+                              Instrument::Multimeter};
+    for (Instrument i : all) {
+        if (name == instrument_name(i)) {
+            kind = i;
+            return true;
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
+void App::load_bench_settings()
+{
+    nlohmann::json j = load_settings("bench");
+    std::string theme = j.value("theme", "dark");
+    ui::set_theme(theme == "light" ? ui::ThemeKind::Light : theme == "amber" ? ui::ThemeKind::Amber : ui::ThemeKind::Dark);
+    if (j.value("probe", "") == "demo") {
+        probe_kind_ = ProbeKind::Demo;
+    } else if (j.value("probe", "") == "emulator") {
+        probe_kind_ = ProbeKind::Emulator;
+    }
+    wires_shown_ = j.value("wires_shown", true);
+    if (j.contains("rack") && j["rack"].is_object()) {
+        rack_x_ = j["rack"].value("x", rack_x_);
+        rack_y_ = j["rack"].value("y", rack_y_);
+    }
+    if (j.contains("instruments") && j["instruments"].is_array()) {
+        for (const nlohmann::json &w : j["instruments"]) {
+            Instrument kind;
+            if (w.is_object() && instrument_from_name(w.value("name", ""), kind)) {
+                saved_instruments_.push_back(SavedWindow{kind, w.value("x", 40), w.value("y", 280)});
+            }
+        }
+    }
+    if (j.contains("wires") && j["wires"].is_array()) {
+        for (const nlohmann::json &w : j["wires"]) {
+            Instrument kind;
+            if (w.is_object() && instrument_from_name(w.value("instrument", ""), kind)) {
+                // Before the command-line wires, so those win on a conflict.
+                wires_at_start_.insert(wires_at_start_.begin(), Wire{kind, w.value("channel", 0), w.value("port", -1)});
+            }
+        }
+    }
+}
+
+void App::save_bench_settings()
+{
+    nlohmann::json j;
+    j["theme"] = theme_name(ui::current_theme().kind);
+    j["probe"] = probe_name(probe_kind_);
+    j["wires_shown"] = wires_shown_;
+    if (rack_window_) {
+        int x = 0;
+        int y = 0;
+        rack_window_->position(x, y);
+        j["rack"] = {{"x", x}, {"y", y}};
+    }
+    j["instruments"] = nlohmann::json::array();
+    for (OpenInstrument &i : instruments_) {
+        int x = 0;
+        int y = 0;
+        i.window->position(x, y);
+        j["instruments"].push_back({{"name", instrument_name(i.instrument->kind())}, {"x", x}, {"y", y}});
+        nlohmann::json inst;
+        i.instrument->save(inst);
+        std::string file = instrument_name(i.instrument->kind());
+        for (char &c : file) {
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        save_settings(file, inst);
+    }
+    j["wires"] = nlohmann::json::array();
+    for (const Wire &w : wires_) {
+        j["wires"].push_back({{"instrument", instrument_name(w.instrument)}, {"channel", w.channel}, {"port", w.port}});
+    }
+    save_settings("bench", j);
+    last_save_time_ = std::chrono::steady_clock::now();
+}
+
 // ---- composite screenshot -----------------------------------------------
 
 void App::request_bench_capture()
@@ -577,15 +689,31 @@ int App::run()
     }
     ui::set_theme(ui::ThemeKind::Dark);
     overlays_enabled_ = ui::platform_has_window_positions();
+    // The command line wins over the saved settings.
+    bool probe_from_command_line = probe_from_command_line_;
+    ProbeKind asked = probe_kind_;
+    if (screenshots_.empty()) {
+        load_bench_settings();   // a screenshot run is reproducible: command line only
+    }
+    if (probe_from_command_line) {
+        probe_kind_ = asked;
+    }
     open_rack();
     if (!rack_window_) {
         ui::platform_shutdown();
         return 1;
     }
     create_probe(probe_kind_);
+    // Instruments open where they were, unless the command line says otherwise.
+    for (const SavedWindow &saved : saved_instruments_) {
+        if (std::find(open_at_start_.begin(), open_at_start_.end(), saved.kind) == open_at_start_.end()) {
+            open_at_start_.push_back(saved.kind);
+        }
+    }
     for (Instrument kind : open_at_start_) {
         create_instrument(kind);
     }
+    last_save_time_ = std::chrono::steady_clock::now();
     for (const Wire &w : wires_at_start_) {
         make_wire(w.instrument, w.channel, w.port);
     }
@@ -654,6 +782,10 @@ int App::run()
             i.window->frame();
         }
         update_overlays();
+        if (screenshots_.empty() &&
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - last_save_time_).count() >= 10.0) {
+            save_bench_settings();
+        }
         instruments_.erase(std::remove_if(instruments_.begin(), instruments_.end(),
                                           [](const OpenInstrument &i) {
                                               return i.window->close_requested();
@@ -661,6 +793,9 @@ int App::run()
                            instruments_.end());
     }
 
+    if (screenshots_.empty()) {
+        save_bench_settings();   // a screenshot run must not change the user's layout
+    }
     probe_->disconnect();
     overlays_.clear();
     instruments_.clear();

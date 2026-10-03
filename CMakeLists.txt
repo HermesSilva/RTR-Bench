@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.24)
-project(rtr-bench VERSION 0.1.0 LANGUAGES C CXX)
+
+# Version: MAJOR.MINOR here, the build number from build-number.txt, which
+# scripts/build.* increment on every build (CI builds the committed number).
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/build-number.txt" RTR_BUILD_NUMBER)
+string(STRIP "${RTR_BUILD_NUMBER}" RTR_BUILD_NUMBER)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/build-number.txt")
+project(rtr-bench VERSION 0.1.${RTR_BUILD_NUMBER} LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -110,6 +116,7 @@ add_executable(rtr-bench
     src/app/main.cpp
     src/app/app.cpp
     src/app/rack.cpp
+    src/app/settings.cpp
     src/instruments/scope/scope.cpp
     src/ui/theme.cpp
     src/ui/window.cpp
