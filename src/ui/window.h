@@ -57,6 +57,7 @@ public:
     bool minimized() const;
     void raise();   // bring to front and focus
     void show(bool visible);
+    bool focused() const;
 
     // Saves the next rendered frame as a PNG with alpha (the transparent
     // margins stay transparent). Returns through `done` when written.

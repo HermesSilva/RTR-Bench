@@ -76,6 +76,10 @@ public:
     void anchor_port(int port, ui::Window &window, float local_x, float local_y);
     void anchor_channel(Instrument instrument, int channel, ui::Window &window, float local_x, float local_y);
     bool wires_across_desktop() const { return overlays_enabled_; }
+    // The WIRES key on the rack. The cables are also hidden whenever no
+    // window of the bench has the focus, whatever the key says.
+    bool wires_shown() const { return wires_shown_; }
+    void show_wires(bool shown) { wires_shown_ = shown; }
 
 private:
     void open_rack();
@@ -136,6 +140,8 @@ private:
     };
     std::vector<Overlay> overlays_;
     bool overlays_enabled_ = false;
+    bool wires_shown_ = true;
+    bool bench_focused() const;
     void begin_anchors();
     void update_overlays();
     Overlay &overlay_slot(size_t index);

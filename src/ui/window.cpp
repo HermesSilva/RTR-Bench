@@ -360,6 +360,17 @@ void Window::raise()
     glfwFocusWindow(window_);
 }
 
+bool Window::focused() const
+{
+#ifdef _WIN32
+    // The system's own answer: GLFW's attribute can lag behind when the
+    // overlay windows (floating, never focused) are shown and hidden.
+    return GetForegroundWindow() == glfwGetWin32Window(window_);
+#else
+    return glfwGetWindowAttrib(window_, GLFW_FOCUSED) != 0;
+#endif
+}
+
 void Window::show(bool visible)
 {
     if (visible) {

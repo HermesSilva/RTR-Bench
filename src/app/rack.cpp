@@ -162,7 +162,13 @@ void Rack::draw(ui::Window &window)
     y += key_h + 9.0f * s;
     ui::label(ImVec2(x, y + 3.0f * s), "THEME", true);
     float tx = x + ImGui::CalcTextSize("THEME").x + 10.0f * s;
-    float tw = (inst_max.x - 10.0f * s - tx - 2.0f * gap) / 3.0f;
+    // WIRES key at the right end of the row; the theme keys share the rest.
+    float ww = 62.0f * s;
+    if (ui::key("##wires", "WIRES", ImVec2(inst_max.x - 10.0f * s - ww, y), ImVec2(ww, key_h), app_.wires_shown(),
+                t.led_run, s, app_.wires_across_desktop())) {
+        app_.show_wires(!app_.wires_shown());
+    }
+    float tw = (inst_max.x - 10.0f * s - ww - gap - tx - 2.0f * gap) / 3.0f;
     const ui::ThemeKind kinds[] = {ui::ThemeKind::Light, ui::ThemeKind::Dark, ui::ThemeKind::Amber};
     const char *names[] = {"LIGHT", "DARK", "AMBER"};
     const char *ids[] = {"##theme-light", "##theme-dark", "##theme-amber"};

@@ -354,6 +354,19 @@ App::Overlay &App::overlay_slot(size_t index)
 // Once per frame, after the rack and the instruments reported their anchors:
 // place one overlay per wire over the two ends, plus one following the mouse
 // while a wire is being made.
+bool App::bench_focused() const
+{
+    if (rack_window_ && rack_window_->focused()) {
+        return true;
+    }
+    for (const OpenInstrument &i : instruments_) {
+        if (i.window->focused()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void App::update_overlays()
 {
     if (!overlays_enabled_) {
@@ -361,6 +374,14 @@ void App::update_overlays()
     }
     for (Overlay &o : overlays_) {
         o.used = false;
+    }
+    // Cables only while the bench is in use: the WIRES key on the rack and
+    // the focus on one of its windows (the overlays never take the focus).
+    if (!wires_shown_ || !bench_focused()) {
+        for (Overlay &o : overlays_) {
+            o.window->show(false);
+        }
+        return;
     }
     size_t index = 0;
     auto place = [&](float x0, float y0, float x1, float y1, uint32_t colour, bool dangling) {
