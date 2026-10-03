@@ -2,8 +2,11 @@
 #include "instruments/scope/scope.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cfloat>
 #include <cstdio>
+#include <cstring>
+#include <string>
 
 #include "app/app.h"
 #include "ui/chassis.h"
@@ -35,9 +38,92 @@ float mono_width(const char *text)
 
 }  // namespace
 
+namespace {
+
+size_t math_slot(int m)
+{
+    return static_cast<size_t>(app::Scope::channels) + static_cast<size_t>(m);
+}
+
+}  // namespace
+
 Scope::Scope(App &app) : app_(app)
 {
+    for (int m = 0; m < math_channels; m++) {
+        Channel &c = ch_[math_slot(m)];
+        c.math = true;
+        c.trace = core::DigitalTrace(1u << 16);
+        c.analog = core::AnalogTrace(1u << 14);
+    }
+    for (const App::MathPreset &preset : app_.math_presets()) {
+        const std::vector<core::Formula> &list = core::formulas();
+        for (size_t i = 0; i < list.size(); i++) {
+            if (preset.formula == list[i].name && preset.channel >= 1 && preset.channel <= math_channels) {
+                Channel &c = ch_[math_slot(preset.channel - 1)];
+                c.enabled = true;
+                c.formula = static_cast<int>(i);
+            }
+        }
+    }
     refresh_wiring();
+}
+
+// Math channels are computed over the current view, every frame.
+// Math channels are computed over the current view, every frame, M1 before
+// M2 (so M2 may use M1; M1 using M2 sees the previous frame).
+void Scope::evaluate_math()
+{
+    const core::ScopeView &view = engine_.view();
+    for (int m = 0; m < math_channels; m++) {
+        Channel &c = ch_[math_slot(m)];
+        if (!c.enabled || !view.valid) {
+            continue;
+        }
+        const core::Formula &f = core::formulas()[static_cast<size_t>(c.formula)];
+        c.is_analog = f.kind == core::FormulaKind::Analog;
+        auto usable = [&](int index) {
+            if (index < 0 || index >= all_channels || index == channels + m) {
+                return false;
+            }
+            const Channel &ch = ch_[static_cast<size_t>(index)];
+            return wired_or_enabled(ch) && ch.is_analog == c.is_analog;
+        };
+        // An input of the wrong kind is replaced by the next usable channel
+        // of the right kind, so that choosing a formula just works.
+        for (int k = 0; k < f.inputs; k++) {
+            if (usable(c.input[k])) {
+                continue;
+            }
+            for (int j = 0; j < all_channels; j++) {
+                bool taken = false;
+                for (int o = 0; o < k; o++) {
+                    taken = taken || c.input[o] == j;
+                }
+                if (usable(j) && !taken) {
+                    c.input[k] = j;
+                    break;
+                }
+            }
+        }
+        const Channel *in[core::formula_inputs_max];
+        for (int k = 0; k < core::formula_inputs_max; k++) {
+            in[k] = &ch_[static_cast<size_t>(std::clamp(c.input[k], 0, all_channels - 1))];
+        }
+        if (c.is_analog) {
+            const core::AnalogTrace *a[core::formula_inputs_max];
+            for (int k = 0; k < core::formula_inputs_max; k++) {
+                a[k] = (k < f.inputs && usable(c.input[k])) ? &in[k]->analog : nullptr;
+            }
+            size_t samples = static_cast<size_t>(std::max(16.0f, screen_max_.x - screen_min_.x)) * 2;
+            core::evaluate_analog(f, a, view.t0, view.t1, samples, c.analog);
+        } else {
+            const core::DigitalTrace *d[core::formula_inputs_max];
+            for (int k = 0; k < core::formula_inputs_max; k++) {
+                d[k] = (k < f.inputs && usable(c.input[k])) ? &in[k]->trace : nullptr;
+            }
+            core::evaluate_digital(f, d, view.t0, view.t1, c.trace);
+        }
+    }
 }
 
 void Scope::refresh_wiring()
@@ -65,7 +151,7 @@ void Scope::wiring_changed()
 bool Scope::any_analog() const
 {
     for (const Channel &c : ch_) {
-        if (c.port >= 0 && c.is_analog) {
+        if (wired_or_enabled(c) && c.is_analog) {
             return true;
         }
     }
@@ -187,6 +273,7 @@ void Scope::draw(ui::Window &window)
     float controls_w = 300.0f * s;
     ImVec2 screen_min = frame.panel_min;
     ImVec2 screen_max(frame.panel_max.x - controls_w - 10.0f * s, frame.panel_max.y);
+    evaluate_math();
     draw_screen(window, screen_min, screen_max);
     draw_controls(window, ImVec2(screen_max.x + 10.0f * s, frame.panel_min.y), frame.panel_max);
 
@@ -266,7 +353,7 @@ void Scope::draw_screen(ui::Window &window, ImVec2 min, ImVec2 max)
     // digital channel); digital channels get lanes below.
     int digital_count = 0;
     for (const Channel &c : ch_) {
-        if (c.port >= 0 && !c.is_analog && c.visible) {
+        if (wired_or_enabled(c) && !c.is_analog && c.visible) {
             digital_count++;
         }
     }
@@ -276,9 +363,9 @@ void Scope::draw_screen(ui::Window &window, ImVec2 min, ImVec2 max)
     analog_max_ = ImVec2(screen_max_.x, screen_max_.y - digital_h);
     if (view.valid) {
         if (analog) {
-            for (int c = 0; c < channels; c++) {
+            for (int c = 0; c < all_channels; c++) {
                 const Channel &ch = ch_[static_cast<size_t>(c)];
-                if (ch.port >= 0 && ch.is_analog && ch.visible) {
+                if (wired_or_enabled(ch) && ch.is_analog && ch.visible) {
                     draw_analog(ch, c, draw, s);
                 }
             }
@@ -287,14 +374,17 @@ void Scope::draw_screen(ui::Window &window, ImVec2 min, ImVec2 max)
                               t.graticule_axis, 1.0f);
             }
         }
-        float lane_h = digital_count > 0 ? digital_h / static_cast<float>(analog ? digital_count : channels) : 0.0f;
+        // Without analog channels the digital lanes split the screen evenly
+        // among the shown channels (at least four lanes, like the inputs).
+        int lanes = analog ? std::max(1, digital_count) : std::max(channels, digital_count);
+        float lane_h = digital_count > 0 ? digital_h / static_cast<float>(lanes) : 0.0f;
         int lane = 0;
-        for (int c = 0; c < channels; c++) {
+        for (int c = 0; c < all_channels; c++) {
             const Channel &ch = ch_[static_cast<size_t>(c)];
-            if (ch.port < 0 || ch.is_analog || !ch.visible) {
+            if (!wired_or_enabled(ch) || ch.is_analog || !ch.visible) {
                 continue;
             }
-            float top = analog_max_.y + lane_h * static_cast<float>(analog ? lane : c);
+            float top = analog_max_.y + lane_h * static_cast<float>(lane);
             draw_digital(ch, c, top + lane_h * 0.18f, top + lane_h - lane_h * 0.18f, draw, s);
             lane++;
         }
@@ -348,18 +438,51 @@ void Scope::draw_screen(ui::Window &window, ImVec2 min, ImVec2 max)
     // Readouts: channel line and measurement line.
     float ry = screen_max_.y + (cursors_ ? line_h : 0.0f) + 4.0f * s;
     x = inner_min.x + 8.0f * s;
-    for (int c = 0; c < channels; c++) {
+    for (int c = 0; c < all_channels; c++) {
         const Channel &ch = ch_[static_cast<size_t>(c)];
-        uint32_t colour = ch.port >= 0 ? ui::channel_colour(c) : t.readout_dim;
+        uint32_t colour = wired_or_enabled(ch) ? ui::channel_colour(c) : t.readout_dim;
         const core::PortInfo *info = app_.port_info(ch.port);
-        if (ch.port >= 0 && ch.is_analog) {
+        char tag[8];
+        if (ch.math) {
+            std::snprintf(tag, sizeof(tag), "M%d", c - channels + 1);
+        } else {
+            std::snprintf(tag, sizeof(tag), "%d", c + 1);
+        }
+        if (ch.math && ch.enabled) {
+            const core::Formula &f = core::formulas()[static_cast<size_t>(ch.formula)];
+            const char *names = "ABCD";
+            char expr[64];
+            std::snprintf(expr, sizeof(expr), "%s", f.name);
+            // "A", "B", "C" in the name become the input channel numbers.
+            std::string shown;
+            for (const char *p = expr; *p; p++) {
+                const char *k = std::strchr(names, *p);
+                bool word = k && (p == expr || !std::isalnum(static_cast<unsigned char>(p[-1]))) &&
+                            !std::isalnum(static_cast<unsigned char>(p[1]));
+                if (word) {
+                    int src = ch.input[k - names];
+                    shown += src >= channels ? "M" + std::to_string(src - channels + 1) : "CH" + std::to_string(src + 1);
+                } else {
+                    shown += *p;
+                }
+            }
+            if (ch.is_analog) {
+                char vd[24];
+                core::format_volts(vd, sizeof(vd), core::volts_per_div_steps()[static_cast<size_t>(ch.volts_step)]);
+                std::snprintf(text, sizeof(text), "%s = %s %s/div", tag, shown.c_str(), vd);
+            } else {
+                std::snprintf(text, sizeof(text), "%s = %s", tag, shown.c_str());
+            }
+        } else if (ch.math) {
+            std::snprintf(text, sizeof(text), "%s off", tag);
+        } else if (ch.port >= 0 && ch.is_analog) {
             char vd[24];
             core::format_volts(vd, sizeof(vd), core::volts_per_div_steps()[static_cast<size_t>(ch.volts_step)]);
-            std::snprintf(text, sizeof(text), "%d %s %s/div", c + 1, info ? info->name.c_str() : "?", vd);
+            std::snprintf(text, sizeof(text), "%s %s %s/div", tag, info ? info->name.c_str() : "?", vd);
         } else if (ch.port >= 0) {
-            std::snprintf(text, sizeof(text), "%d %s", c + 1, info ? info->name.c_str() : "?");
+            std::snprintf(text, sizeof(text), "%s %s", tag, info ? info->name.c_str() : "?");
         } else {
-            std::snprintf(text, sizeof(text), "%d --", c + 1);
+            std::snprintf(text, sizeof(text), "%s --", tag);
         }
         if (c == selected_) {
             float tw = mono_width(text);
@@ -370,7 +493,13 @@ void Scope::draw_screen(ui::Window &window, ImVec2 min, ImVec2 max)
         x += mono_width(text) + 16.0f * s;
     }
     const Channel &sel = ch_[static_cast<size_t>(selected_)];
-    if (sel.port >= 0 && sel.is_analog && view.valid) {
+    char sel_tag[8];
+    if (sel.math) {
+        std::snprintf(sel_tag, sizeof(sel_tag), "M%d", selected_ - channels + 1);
+    } else {
+        std::snprintf(sel_tag, sizeof(sel_tag), "CH%d", selected_ + 1);
+    }
+    if (wired_or_enabled(sel) && sel.is_analog && view.valid) {
         core::AnalogMeasurements m = core::measure_analog(sel.analog, view.t0, view.t1);
         if (m.valid) {
             char pp[24];
@@ -392,13 +521,13 @@ void Scope::draw_screen(ui::Window &window, ImVec2 min, ImVec2 max)
                 std::snprintf(f, sizeof(f), "--");
                 std::snprintf(p, sizeof(p), "--");
             }
-            std::snprintf(text, sizeof(text), "CH%d  Vpp %s  Vmax %s  Vmin %s  Vmean %s  Vrms %s  f %s  T %s",
-                          selected_ + 1, pp, mx, mn, mean, rms, f, p);
+            std::snprintf(text, sizeof(text), "%s  Vpp %s  Vmax %s  Vmin %s  Vmean %s  Vrms %s  f %s  T %s",
+                          sel_tag, pp, mx, mn, mean, rms, f, p);
         } else {
-            std::snprintf(text, sizeof(text), "CH%d  no samples on screen", selected_ + 1);
+            std::snprintf(text, sizeof(text), "%s  no samples on screen", sel_tag);
         }
         mono_text(draw, ImVec2(inner_min.x + 8.0f * s, ry + line_h), ui::channel_colour(selected_), text);
-    } else if (sel.port >= 0 && view.valid) {
+    } else if (wired_or_enabled(sel) && view.valid) {
         core::Measurements m = core::measure(sel.trace, view.t0, view.t1);
         if (m.valid) {
             char f[32];
@@ -409,16 +538,17 @@ void Scope::draw_screen(ui::Window &window, ImVec2 min, ImVec2 max)
             core::format_duration(p, sizeof(p), m.period_ns);
             core::format_duration(hi, sizeof(hi), m.high_ns);
             core::format_duration(lo, sizeof(lo), m.low_ns);
-            std::snprintf(text, sizeof(text), "CH%d  f %s  T %s  +w %s  -w %s  duty %.1f %%  edges %d", selected_ + 1,
+            std::snprintf(text, sizeof(text), "%s  f %s  T %s  +w %s  -w %s  duty %.1f %%  edges %d", sel_tag,
                           f, p, hi, lo, m.duty * 100.0, m.rising + m.falling);
         } else {
-            std::snprintf(text, sizeof(text), "CH%d  no full period on screen  edges %d", selected_ + 1,
+            std::snprintf(text, sizeof(text), "%s  no full period on screen  edges %d", sel_tag,
                           m.rising + m.falling);
         }
         mono_text(draw, ImVec2(inner_min.x + 8.0f * s, ry + line_h), ui::channel_colour(selected_), text);
-    } else if (sel.port < 0) {
+    } else if (!wired_or_enabled(sel)) {
         mono_text(draw, ImVec2(inner_min.x + 8.0f * s, ry + line_h), t.readout_dim,
-                  "wire a port: press a CH key, then click a jack on the rack");
+                  sel.math ? "math channel off: press its key and choose a formula"
+                           : "wire a port: press a CH key, then click a jack on the rack");
     }
 }
 
@@ -552,18 +682,102 @@ void Scope::draw_analog(const Channel &ch, int index, ImDrawList *draw, float s)
     mono_text(draw, ImVec2(screen_min_.x + 12.0f * s, zero_y - 7.0f * s), t.screen, tag);
 }
 
+// The formula chooser: a readout-like button; its popup lists the formulas
+// under their group headings, in the panel colours, the current one marked.
+void Scope::draw_formula_combo(int math_index, ImVec2 pos, ImVec2 size, float s)
+{
+    const ui::Theme &t = ui::current_theme();
+    Channel &mc = ch_[math_slot(math_index)];
+    const std::vector<core::Formula> &list = core::formulas();
+    const core::Formula &current = list[static_cast<size_t>(mc.formula)];
+    ImDrawList *draw = ImGui::GetWindowDrawList();
+
+    ImGui::SetCursorScreenPos(pos);
+    ImGui::InvisibleButton("##formula", size);
+    bool hovered = ImGui::IsItemHovered();
+    if (ImGui::IsItemClicked()) {
+        ImGui::OpenPopup("##formula-list");
+    }
+    draw->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), hovered ? t.key_hover : t.screen, 4.0f * s);
+    draw->AddRect(pos, ImVec2(pos.x + size.x, pos.y + size.y), t.chassis_shadow, 4.0f * s, 0, 1.0f * s);
+    ImFont *mono = ui::fonts().mono;
+    draw->AddText(mono, mono->FontSize, ImVec2(pos.x + 8.0f * s, pos.y + (size.y - mono->FontSize) * 0.5f),
+                  ui::channel_colour(channels + math_index), current.name);
+    // The chevron of a combo at the right.
+    float cx = pos.x + size.x - 12.0f * s;
+    float cy = pos.y + size.y * 0.5f;
+    draw->AddTriangleFilled(ImVec2(cx - 5.0f * s, cy - 3.0f * s), ImVec2(cx + 5.0f * s, cy - 3.0f * s),
+                            ImVec2(cx, cy + 3.0f * s), t.label_dim);
+
+    ImGui::SetNextWindowPos(ImVec2(pos.x, pos.y + size.y + 4.0f * s));
+    ImGui::SetNextWindowSize(ImVec2(size.x + 40.0f * s, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, t.screen);
+    ImGui::PushStyleColor(ImGuiCol_Border, t.chassis_edge);
+    ImGui::PushStyleColor(ImGuiCol_Text, t.readout);
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, t.key_hover);
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, t.key_pressed);
+    ImGui::PushStyleColor(ImGuiCol_Header, t.key);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f * s, 8.0f * s));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f * s, 3.0f * s));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f * s);
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f * s);
+    if (ImGui::BeginPopup("##formula-list")) {
+        const char *group = nullptr;
+        for (size_t i = 0; i < list.size(); i++) {
+            const core::Formula &f = list[i];
+            if (!group || std::strcmp(group, f.group) != 0) {
+                group = f.group;
+                if (i > 0) {
+                    ImGui::Spacing();
+                }
+                ImGui::PushFont(ui::fonts().small);
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(t.label_dim), "%s", group);
+                ImGui::PopFont();
+            }
+            bool is_current = static_cast<int>(i) == mc.formula;
+            ImGui::PushFont(mono);
+            if (is_current) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ui::channel_colour(channels + math_index));
+            }
+            if (ImGui::Selectable(f.name, is_current)) {
+                mc.formula = static_cast<int>(i);
+                mc.enabled = true;
+                mc.trace.clear();
+                mc.analog.clear();
+                ImGui::CloseCurrentPopup();
+            }
+            if (is_current) {
+                ImGui::PopStyleColor();
+            }
+            ImGui::PopFont();
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar(4);
+    ImGui::PopStyleColor(6);
+}
+
 void Scope::draw_controls(ui::Window &window, ImVec2 min, ImVec2 max)
 {
     const ui::Theme &t = ui::current_theme();
     const float s = window.scale();
-    const float key_h = 26.0f * s;
-    const float gap = 6.0f * s;
-    float x = min.x + 10.0f * s;
-    float y = min.y + 12.0f * s;
-    float inner_w = max.x - min.x - 20.0f * s;
+    const float key_h = 21.0f * s;
+    const float gap = 5.0f * s;
+    const float pad = 8.0f * s;
+    const float title_h = 11.0f * s;    // room for the group title above its frame
+    const float knob_r = 15.0f * s;
+    const float read_h = 19.0f * s;
+    float x = min.x + pad;
+    float y = min.y + title_h;
+    float inner_w = max.x - min.x - 2.0f * pad;
+    char text[64];
+    ImDrawList *draw = ImGui::GetWindowDrawList();
+    auto next_group = [&](float bottom) {
+        y = bottom + title_h + 6.0f * s;
+    };
 
-    // RUN control.
-    ui::group_frame(ImVec2(min.x, min.y), ImVec2(max.x, y + key_h + 10.0f * s), "RUN CONTROL", s);
+    // ---- RUN CONTROL: one row of three keys ---------------------------------
+    float group_top = y - title_h;
     float kw = (inner_w - 2.0f * gap) / 3.0f;
     if (ui::key("##run", engine_.running() ? "RUN" : "STOP", ImVec2(x, y), ImVec2(kw, key_h), true,
                 engine_.running() ? t.led_run : t.led_stop, s)) {
@@ -579,80 +793,80 @@ void Scope::draw_controls(ui::Window &window, ImVec2 min, ImVec2 max)
     if (ui::key("##clear", "CLEAR", ImVec2(x + 2.0f * (kw + gap), y), ImVec2(kw, key_h), false, t.led_warn, s)) {
         for (Channel &c : ch_) {
             c.trace.clear();
+            c.analog.clear();
         }
         engine_.clear();
     }
-    y += key_h + 32.0f * s;
+    y += key_h + 6.0f * s;
+    ui::group_frame(ImVec2(min.x, group_top), ImVec2(max.x, y), "RUN CONTROL", s);
+    next_group(y);
 
-    // HORIZONTAL: time/div and position knobs with their readouts.
-    float group_top = y - 12.0f * s;
-    float knob_r = 22.0f * s;
-    ImVec2 k1(x + inner_w * 0.25f, y + knob_r + 4.0f * s);
-    ImVec2 k2(x + inner_w * 0.75f, y + knob_r + 4.0f * s);
+    // ---- HORIZONTAL | VERTICAL: four small knobs in one row, readouts below ----
+    group_top = y - title_h;
+    Channel &selected = ch_[static_cast<size_t>(selected_)];
+    bool vertical = wired_or_enabled(selected) && selected.is_analog;
+    float quarter = inner_w / 4.0f;
+    float ky = y + knob_r + 2.0f * s;
     int max_step = static_cast<int>(core::time_per_div_steps().size()) - 1;
+    int vmax_step = static_cast<int>(core::volts_per_div_steps().size()) - 1;
     bool pressed = false;
-    int steps = ui::knob("##timediv", k1, knob_r, "SCALE", s, &pressed);
+    int steps = ui::knob("##timediv", ImVec2(x + quarter * 0.5f, ky), knob_r, "SCALE", s, &pressed);
     if (steps != 0) {
         engine_.settings.time_step = std::clamp(engine_.settings.time_step - steps, 0, max_step);
     }
-    steps = ui::knob("##position", k2, knob_r, "POSITION", s, &pressed);
+    steps = ui::knob("##position", ImVec2(x + quarter * 1.5f, ky), knob_r, "POS", s, &pressed);
     if (steps != 0) {
         engine_.pan(static_cast<int64_t>(steps) * engine_.ns_per_div() / 4);
     }
     if (pressed) {
         engine_.settings.position_ns = 0;
     }
-    y += knob_r * 2.0f + 26.0f * s;
-    char per_div[32];
-    core::format_duration(per_div, sizeof(per_div), engine_.ns_per_div());
-    char text[48];
-    std::snprintf(text, sizeof(text), "%s/div", per_div);
-    ui::readout(ImVec2(x, y), ImVec2(x + inner_w * 0.5f - gap, y + 22.0f * s), text, t.readout, s);
-    core::format_duration(per_div, sizeof(per_div), engine_.settings.position_ns);
-    ui::readout(ImVec2(x + inner_w * 0.5f, y), ImVec2(x + inner_w, y + 22.0f * s), per_div, t.readout, s);
-    y += 22.0f * s + 10.0f * s;
-    ui::group_frame(ImVec2(min.x, group_top), ImVec2(max.x, y), "HORIZONTAL", s);
-    y += 22.0f * s;
-
-    // VERTICAL: volts/div and offset of the selected channel (analog only).
-    Channel &selected = ch_[static_cast<size_t>(selected_)];
-    bool vertical = selected.port >= 0 && selected.is_analog;
-    group_top = y - 12.0f * s;
-    k1 = ImVec2(x + inner_w * 0.25f, y + knob_r + 4.0f * s);
-    k2 = ImVec2(x + inner_w * 0.75f, y + knob_r + 4.0f * s);
-    int vmax_step = static_cast<int>(core::volts_per_div_steps().size()) - 1;
-    pressed = false;
-    steps = ui::knob("##vscale", k1, knob_r, "SCALE", s, &pressed);
+    steps = ui::knob("##vscale", ImVec2(x + quarter * 2.5f, ky), knob_r, "V/DIV", s, &pressed);
     if (vertical && steps != 0) {
         selected.volts_step = std::clamp(selected.volts_step - steps, 0, vmax_step);
     }
-    steps = ui::knob("##voffset", k2, knob_r, "OFFSET", s, &pressed);
+    steps = ui::knob("##voffset", ImVec2(x + quarter * 3.5f, ky), knob_r, "OFFSET", s, &pressed);
     if (vertical && steps != 0) {
         selected.offset_div = std::clamp(selected.offset_div + static_cast<float>(steps) * 0.25f, -4.0f, 4.0f);
     }
     if (vertical && pressed) {
         selected.offset_div = 0.0f;
     }
-    y += knob_r * 2.0f + 26.0f * s;
+    // A thin divider between the horizontal and the vertical pair.
+    draw->AddLine(ImVec2(x + quarter * 2.0f, y), ImVec2(x + quarter * 2.0f, ky + knob_r + 14.0f * s), t.chassis_shadow, 1.0f);
+    y = ky + knob_r + 18.0f * s;
+    char per_div[32];
+    core::format_duration(per_div, sizeof(per_div), engine_.ns_per_div());
+    std::snprintf(text, sizeof(text), "%s/div", per_div);
+    float rw = quarter - gap;
+    ui::readout(ImVec2(x, y), ImVec2(x + rw, y + read_h), text, t.readout, s);
+    core::format_duration(per_div, sizeof(per_div), engine_.settings.position_ns);
+    ui::readout(ImVec2(x + quarter, y), ImVec2(x + quarter + rw, y + read_h), per_div, t.readout, s);
     if (vertical) {
         char vd[24];
         core::format_volts(vd, sizeof(vd), core::volts_per_div_steps()[static_cast<size_t>(selected.volts_step)]);
         std::snprintf(text, sizeof(text), "%s/div", vd);
-        ui::readout(ImVec2(x, y), ImVec2(x + inner_w * 0.5f - gap, y + 22.0f * s), text, ui::channel_colour(selected_), s);
+        ui::readout(ImVec2(x + 2.0f * quarter, y), ImVec2(x + 2.0f * quarter + rw, y + read_h), text,
+                    ui::channel_colour(selected_), s);
         std::snprintf(text, sizeof(text), "%+.2f div", static_cast<double>(selected.offset_div));
-        ui::readout(ImVec2(x + inner_w * 0.5f, y), ImVec2(x + inner_w, y + 22.0f * s), text, ui::channel_colour(selected_), s);
+        ui::readout(ImVec2(x + 3.0f * quarter, y), ImVec2(x + 3.0f * quarter + rw, y + read_h), text,
+                    ui::channel_colour(selected_), s);
     } else {
-        ui::readout(ImVec2(x, y), ImVec2(x + inner_w * 0.5f - gap, y + 22.0f * s), "digital", t.readout_dim, s);
-        ui::readout(ImVec2(x + inner_w * 0.5f, y), ImVec2(x + inner_w, y + 22.0f * s), "--", t.readout_dim, s);
+        ui::readout(ImVec2(x + 2.0f * quarter, y), ImVec2(x + 2.0f * quarter + rw, y + read_h), "digital", t.readout_dim, s);
+        ui::readout(ImVec2(x + 3.0f * quarter, y), ImVec2(x + 3.0f * quarter + rw, y + read_h), "--", t.readout_dim, s);
     }
-    y += 22.0f * s + 10.0f * s;
-    char vtitle[24];
-    std::snprintf(vtitle, sizeof(vtitle), "VERTICAL  CH%d", selected_ + 1);
-    ui::group_frame(ImVec2(min.x, group_top), ImVec2(max.x, y), vtitle, s);
-    y += 22.0f * s;
+    y += read_h + 6.0f * s;
+    char htitle[48];
+    if (selected.math) {
+        std::snprintf(htitle, sizeof(htitle), "HORIZONTAL   VERTICAL M%d", selected_ - channels + 1);
+    } else {
+        std::snprintf(htitle, sizeof(htitle), "HORIZONTAL   VERTICAL CH%d", selected_ + 1);
+    }
+    ui::group_frame(ImVec2(min.x, group_top), ImVec2(max.x, y), htitle, s);
+    next_group(y);
 
-    // TRIGGER: source, slope, mode, level.
-    group_top = y - 12.0f * s;
+    // ---- TRIGGER: source row, then slope / mode / level --------------------
+    group_top = y - title_h;
     kw = (inner_w - 3.0f * gap) / 4.0f;
     for (int c = 0; c < channels; c++) {
         char id[16];
@@ -666,23 +880,10 @@ void Scope::draw_controls(ui::Window &window, ImVec2 min, ImVec2 max)
         }
     }
     y += key_h + gap;
-    // Level knob beside the slope and mode keys when the source is analog.
     const Channel &trig = ch_[static_cast<size_t>(engine_.settings.trigger_channel)];
     bool analog_trigger = trig.port >= 0 && trig.is_analog;
-    float keys_w = inner_w;
-    if (analog_trigger) {
-        float lr = 16.0f * s;
-        ImVec2 lk(x + inner_w - lr, y + key_h * 0.5f);
-        float volts_div = core::volts_per_div_steps()[static_cast<size_t>(trig.volts_step)];
-        int lsteps = ui::knob("##level", lk, lr, nullptr, s, &pressed);
-        if (lsteps != 0) {
-            trigger_level_ += static_cast<float>(lsteps) * volts_div * 0.1f;
-        }
-        if (pressed) {
-            trigger_level_ = 0.0f;
-        }
-        keys_w = inner_w - lr * 2.0f - gap;
-    }
+    float lr = 11.0f * s;
+    float keys_w = inner_w - (lr * 2.0f + gap) - (rw + gap);
     kw = (keys_w - 2.0f * gap) / 3.0f;
     const char *slope_label = engine_.settings.slope == core::TriggerSlope::Rising    ? "RISE"
                               : engine_.settings.slope == core::TriggerSlope::Falling ? "FALL"
@@ -696,41 +897,52 @@ void Scope::draw_controls(ui::Window &window, ImVec2 min, ImVec2 max)
                 engine_.settings.mode == core::TriggerMode::Auto, t.led_run, s)) {
         engine_.settings.mode = core::TriggerMode::Auto;
     }
-    if (ui::key("##normal", "NORMAL", ImVec2(x + 2.0f * (kw + gap), y), ImVec2(kw, key_h),
+    if (ui::key("##normal", "NORM", ImVec2(x + 2.0f * (kw + gap), y), ImVec2(kw, key_h),
                 engine_.settings.mode == core::TriggerMode::Normal, t.led_run, s)) {
         engine_.settings.mode = core::TriggerMode::Normal;
     }
-    y += key_h + 10.0f * s;
+    // Level knob and readout, live only with an analog source.
+    ImVec2 lk(x + keys_w + gap + lr, y + key_h * 0.5f);
+    int lsteps = ui::knob("##level", lk, lr, nullptr, s, &pressed);
     if (analog_trigger) {
+        float volts_div = core::volts_per_div_steps()[static_cast<size_t>(trig.volts_step)];
+        if (lsteps != 0) {
+            trigger_level_ += static_cast<float>(lsteps) * volts_div * 0.1f;
+        }
+        if (pressed) {
+            trigger_level_ = 0.0f;
+        }
         char lv[24];
         core::format_volts(lv, sizeof(lv), trigger_level_);
-        std::snprintf(text, sizeof(text), "level %s", lv);
-        ui::readout(ImVec2(x, y), ImVec2(x + inner_w, y + 22.0f * s), text, ui::channel_colour(engine_.settings.trigger_channel), s);
-        y += 22.0f * s + 10.0f * s;
+        ui::readout(ImVec2(x + inner_w - rw, y), ImVec2(x + inner_w, y + key_h), lv,
+                    ui::channel_colour(engine_.settings.trigger_channel), s);
+    } else {
+        ui::readout(ImVec2(x + inner_w - rw, y), ImVec2(x + inner_w, y + key_h), "level", t.readout_dim, s);
     }
+    y += key_h + 6.0f * s;
     ui::group_frame(ImVec2(min.x, group_top), ImVec2(max.x, y), "TRIGGER", s);
-    y += 22.0f * s;
+    next_group(y);
 
-    // CHANNELS: a key per channel; press to wire (with the rack), press a
-    // wired one to select it for the measurements; second press unwires.
-    group_top = y - 12.0f * s;
-    kw = (inner_w - 3.0f * gap) / 4.0f;
+    // ---- CHANNELS: a key per channel with its jack beside it ----------------
+    group_top = y - title_h;
+    float jack_r = 7.0f * s;
+    float cell = (inner_w - 3.0f * gap) / 4.0f;
+    kw = cell - jack_r * 2.0f - 4.0f * s;
     for (int c = 0; c < channels; c++) {
         const Channel &ch = ch_[static_cast<size_t>(c)];
+        float cx = x + static_cast<float>(c) * (cell + gap);
         char id[16];
         char label[16];
         std::snprintf(id, sizeof(id), "##ch%d", c);
         const core::PortInfo *info = app_.port_info(ch.port);
         if (ch.port >= 0 && info) {
-            // "1:G18" on the Pi, "1:A1" on the demo and the ADALM2000.
             std::string short_name = info->name.rfind("GPIO ", 0) == 0 ? "G" + std::to_string(info->index) : info->name;
             std::snprintf(label, sizeof(label), "%d:%s", c + 1, short_name.c_str());
         } else {
             std::snprintf(label, sizeof(label), "CH%d", c + 1);
         }
         bool lit = ch.port >= 0 || app_.channel_offered(Instrument::Scope, c);
-        if (ui::key(id, label, ImVec2(x + static_cast<float>(c) * (kw + gap), y), ImVec2(kw, key_h), lit,
-                    ui::channel_colour(c), s)) {
+        if (ui::key(id, label, ImVec2(cx, y), ImVec2(kw, key_h), lit, ui::channel_colour(c), s)) {
             if (ch.port >= 0 && selected_ == c && app_.selected_port() < 0) {
                 app_.unwire(Instrument::Scope, c);
             } else if (ch.port >= 0 && app_.selected_port() < 0) {
@@ -740,13 +952,11 @@ void Scope::draw_controls(ui::Window &window, ImVec2 min, ImVec2 max)
                 selected_ = c;
             }
         }
-        if (app_.channel_offered(Instrument::Scope, c)) {
-            ImGui::GetWindowDrawList()->AddRect(ImVec2(x + static_cast<float>(c) * (kw + gap) - 2.0f * s, y - 2.0f * s),
-                                                ImVec2(x + static_cast<float>(c) * (kw + gap) + kw + 2.0f * s, y + key_h + 2.0f * s),
-                                                t.led_warn, 4.0f * s, 0, 1.5f * s);
+        if (selected_ == c) {
+            draw->AddRect(ImVec2(cx - 2.0f * s, y - 2.0f * s), ImVec2(cx + kw + 2.0f * s, y + key_h + 2.0f * s),
+                          ui::channel_colour(c), 4.0f * s, 0, 1.5f * s);
         }
-        // The wire ends at a jack drawn under the key.
-        ImVec2 jack_c(x + static_cast<float>(c) * (kw + gap) + kw * 0.5f, y + key_h + 18.0f * s);
+        ImVec2 jack_c(cx + kw + 4.0f * s + jack_r, y + key_h * 0.5f);
         ui::JackLook look;
         look.name = "";
         look.level = -1;
@@ -756,28 +966,90 @@ void Scope::draw_controls(ui::Window &window, ImVec2 min, ImVec2 max)
         look.wire_colour = ch.port >= 0 ? ui::channel_colour(c) : 0;
         char jid[16];
         std::snprintf(jid, sizeof(jid), "##chjack%d", c);
-        if (ui::jack(jid, jack_c, 8.0f * s, look, s)) {
+        if (ui::jack(jid, jack_c, jack_r, look, s)) {
             app_.offer_channel(Instrument::Scope, c);
             selected_ = c;
         }
+        if (app_.channel_offered(Instrument::Scope, c)) {
+            draw->AddCircle(jack_c, jack_r + 3.0f * s, t.led_warn, 20, 1.5f * s);
+        }
         app_.anchor_channel(Instrument::Scope, c, window, jack_c.x, jack_c.y);
     }
-    y += key_h + 40.0f * s;   // room for the jacks under the keys
+    y += key_h + gap;
     kw = (inner_w - gap) / 2.0f;
     if (ui::key("##cursors", "CURSORS", ImVec2(x, y), ImVec2(kw, key_h), cursors_, t.led_warn, s)) {
         cursors_ = !cursors_;
     }
-    if (ui::key("##hide", ch_[static_cast<size_t>(selected_)].visible ? "SHOWN" : "HIDDEN", ImVec2(x + kw + gap, y),
-                ImVec2(kw, key_h), !ch_[static_cast<size_t>(selected_)].visible, t.led_stop, s)) {
-        ch_[static_cast<size_t>(selected_)].visible = !ch_[static_cast<size_t>(selected_)].visible;
+    if (ui::key("##hide", selected.visible ? "SHOWN" : "HIDDEN", ImVec2(x + kw + gap, y), ImVec2(kw, key_h),
+                !selected.visible, t.led_stop, s)) {
+        selected.visible = !selected.visible;
     }
-    y += key_h + 10.0f * s;
+    y += key_h + 6.0f * s;
     ui::group_frame(ImVec2(min.x, group_top), ImVec2(max.x, y), "CHANNELS", s);
+    next_group(y);
+
+    // ---- MATH: M1 M2 + formula, then the inputs A..D ------------------------
+    group_top = y - title_h;
+    static int math_shown = 0;   // which math channel the combo edits
+    float mw = 44.0f * s;
+    for (int m = 0; m < math_channels; m++) {
+        Channel &mc = ch_[math_slot(m)];
+        char id[16];
+        char label[8];
+        std::snprintf(id, sizeof(id), "##math%d", m);
+        std::snprintf(label, sizeof(label), "M%d", m + 1);
+        float kx = x + static_cast<float>(m) * (mw + gap);
+        if (ui::key(id, label, ImVec2(kx, y), ImVec2(mw, key_h), mc.enabled, ui::channel_colour(channels + m), s)) {
+            if (math_shown == m && mc.enabled) {
+                mc.enabled = false;
+            } else {
+                mc.enabled = true;
+                math_shown = m;
+                selected_ = channels + m;
+            }
+        }
+        if (math_shown == m) {
+            draw->AddRect(ImVec2(kx - 2.0f * s, y - 2.0f * s), ImVec2(kx + mw + 2.0f * s, y + key_h + 2.0f * s),
+                          ui::channel_colour(channels + m), 4.0f * s, 0, 1.5f * s);
+        }
+    }
+    float combo_x = x + 2.0f * (mw + gap);
+    draw_formula_combo(math_shown, ImVec2(combo_x, y), ImVec2(x + inner_w - combo_x, key_h), s);
+    y += key_h + gap;
+    {
+        Channel &mc = ch_[math_slot(math_shown)];
+        const core::Formula &f = core::formulas()[static_cast<size_t>(mc.formula)];
+        float iw = (inner_w - 3.0f * gap) / 4.0f;
+        const char *names[core::formula_inputs_max] = {"A", "B", "C", "D"};
+        for (int k = 0; k < core::formula_inputs_max; k++) {
+            char id[16];
+            char label[16];
+            std::snprintf(id, sizeof(id), "##in%d", k);
+            int src = mc.input[k];
+            if (src >= channels) {
+                std::snprintf(label, sizeof(label), "%s:M%d", names[k], src - channels + 1);
+            } else {
+                std::snprintf(label, sizeof(label), "%s:CH%d", names[k], src + 1);
+            }
+            bool used = k < f.inputs;
+            if (ui::key(id, label, ImVec2(x + static_cast<float>(k) * (iw + gap), y), ImVec2(iw, key_h), used,
+                        ui::channel_colour(src), s, used)) {
+                // Cycle through the inputs and the other math channel.
+                int next = src;
+                do {
+                    next = (next + 1) % all_channels;
+                } while (next == channels + math_shown);
+                mc.input[k] = next;
+            }
+        }
+    }
+    y += key_h + 6.0f * s;
+    ui::group_frame(ImVec2(min.x, group_top), ImVec2(max.x, y), "MATH", s);
 
     // Keys legend at the bottom.
     ImFont *small = ui::fonts().small;
-    ImGui::GetWindowDrawList()->AddText(small, small->FontSize, ImVec2(x, max.y - small->FontSize - 2.0f * s),
-                                        t.label_dim, "space run/stop   S single   C cursors   arrows pan   + - scale");
+    draw->AddText(small, small->FontSize, ImVec2(x, max.y - small->FontSize - 2.0f * s), t.label_dim,
+                  "space run/stop   S single   C cursors   arrows pan   + - scale");
 }
 
 }  // namespace app

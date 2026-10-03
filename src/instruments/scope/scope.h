@@ -12,6 +12,7 @@
 
 #include "app/instrument.h"
 #include "core/analog_trace.h"
+#include "core/math_formula.h"
 #include "core/scope_engine.h"
 #include "core/trace.h"
 
@@ -30,7 +31,9 @@ public:
     void feed_analog(const std::vector<core::AnalogBlock> &blocks) override;
     void wiring_changed() override;
 
-    static constexpr int channels = 4;
+    static constexpr int channels = 4;       // wired inputs
+    static constexpr int math_channels = 2;  // M1, M2: computed from the inputs
+    static constexpr int all_channels = channels + math_channels;
 
 private:
     struct Channel {
@@ -41,7 +44,16 @@ private:
         bool visible = true;
         int volts_step = 5;         // index into volts_per_div_steps() (500 mV)
         float offset_div = 0.0f;    // vertical position, divisions from the centre
+        // Math channels only.
+        bool math = false;
+        bool enabled = false;
+        int formula = 1;            // index into core::formulas() (A AND B)
+        int input[core::formula_inputs_max] = {0, 1, 2, 3};   // A..D as channel indexes (inputs or the other math)
     };
+
+    void evaluate_math();
+    void draw_formula_combo(int math_index, ImVec2 pos, ImVec2 size, float scale);
+    bool wired_or_enabled(const Channel &ch) const { return ch.math ? ch.enabled : ch.port >= 0; }
 
     void draw_screen(ui::Window &window, ImVec2 min, ImVec2 max);
     void draw_analog(const Channel &ch, int index, ImDrawList *draw, float scale);
@@ -54,7 +66,7 @@ private:
     bool any_analog() const;
 
     App &app_;
-    std::array<Channel, channels> ch_;
+    std::array<Channel, all_channels> ch_;
     core::ScopeEngine engine_;
     float trigger_level_ = 0.0f;    // volts, for an analog trigger source
     int selected_ = 0;              // channel whose measurements show

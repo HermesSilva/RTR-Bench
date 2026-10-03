@@ -53,8 +53,9 @@ const Theme &theme(ThemeKind kind);
 const Theme &current_theme();
 void set_theme(ThemeKind kind);
 
-// Channel colours are shared by every instrument and every theme.
-constexpr int channel_count = 4;
+// Channel colours are shared by every instrument and every theme: four
+// inputs, then the two math channels.
+constexpr int channel_count = 6;
 uint32_t channel_colour(int channel);
 
 }  // namespace ui

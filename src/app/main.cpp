@@ -15,6 +15,7 @@ const char *usage =
     "  --probe NAME             probe to start with: emulator (default) or demo\n"
     "  --open NAME              open an instrument at start (scope)\n"
     "  --wire NAME:CH=PORT      wire channel CH of an instrument to a port (--wire scope:1=18)\n"
+    "  --math N=FORMULA         enable math channel N (1 or 2) of the scope with a formula name\n"
     "  --screenshot NAME=FILE   write a PNG of a window (rack, scope) with alpha, then quit\n"
     "  --delay SECONDS          wait before the screenshots (default 5)\n"
     "  --version\n";
@@ -84,6 +85,13 @@ int run(int argc, char **argv)
                 return 2;
             }
             app.wire_at_start(kind, static_cast<int>(channel) - 1, static_cast<int>(port));
+        } else if (arg == "--math") {
+            size_t eq = value.find('=');
+            if (eq == std::string::npos || (value[0] != '1' && value[0] != '2')) {
+                std::printf("rtr-bench: bad --math '%s' (use 1=\"A AND B\")\n", value.c_str());
+                return 2;
+            }
+            app.math_at_start(value[0] - '0', value.substr(eq + 1));
         } else if (arg == "--screenshot") {
             size_t eq = value.find('=');
             if (eq == std::string::npos) {

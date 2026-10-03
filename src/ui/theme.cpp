@@ -56,6 +56,8 @@ constexpr uint32_t channel_colours[channel_count] = {
     rgb(60, 220, 240),   // CH2 cyan
     rgb(240, 80, 220),   // CH3 magenta
     rgb(90, 140, 255),   // CH4 blue
+    rgb(255, 140, 50),   // M1 orange
+    rgb(190, 150, 255),  // M2 lilac
 };
 
 }  // namespace

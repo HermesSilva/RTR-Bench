@@ -152,10 +152,10 @@ void App::create_instrument(Instrument kind)
     case Instrument::Scope:
         instrument = std::make_unique<Scope>(*this);
         spec.title = "RTR-Bench Oscilloscope";
-        spec.width = 1180;
-        spec.height = 640;
+        spec.width = 1080;
+        spec.height = 560;
         spec.x = 40;
-        spec.y = 300;
+        spec.y = 280;
         break;
     default:
         return;  // not built yet

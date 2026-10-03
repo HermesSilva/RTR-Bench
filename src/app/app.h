@@ -44,6 +44,13 @@ public:
     void probe_at_start(ProbeKind kind) { probe_kind_ = kind; }
     void open_at_start(Instrument kind) { open_at_start_.push_back(kind); }
     void wire_at_start(Instrument kind, int channel, int port) { wires_at_start_.push_back(Wire{kind, channel, port}); }
+    // Math channel presets for the scope: (channel 1 or 2, formula name).
+    struct MathPreset {
+        int channel;
+        std::string formula;
+    };
+    void math_at_start(int channel, const std::string &formula) { math_presets_.push_back(MathPreset{channel, formula}); }
+    const std::vector<MathPreset> &math_presets() const { return math_presets_; }
 
     // For the rack and the instruments.
     core::Probe &probe() { return *probe_; }
@@ -156,6 +163,7 @@ private:
     std::vector<Instrument> open_at_start_;
     std::vector<Instrument> pending_open_;
     std::vector<Wire> wires_at_start_;
+    std::vector<MathPreset> math_presets_;
 
     uint64_t last_event_count_ = 0;
     std::chrono::steady_clock::time_point last_rate_time_;

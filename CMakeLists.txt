@@ -76,6 +76,7 @@ add_library(rtr-core STATIC
     src/core/trace.cpp
     src/core/analog_trace.cpp
     src/core/scope_engine.cpp
+    src/core/math_formula.cpp
     src/probes/tcp_client.cpp
     src/probes/emulator_probe.cpp
     src/probes/demo_probe.cpp)

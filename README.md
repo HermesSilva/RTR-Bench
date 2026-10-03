@@ -44,7 +44,7 @@ The full plan, with the reason behind each choice, is in [`docs/PLANO.md`](docs/
 
 Stage 2 of the plan: the rack and the mixed-signal oscilloscope, on the emulator or on the demo probe.
 
-![The oscilloscope on the demo probe: a sine and a triangle on the analog channels, two digital channels below](docs/screenshots/scope-demo-dark.png)
+![The oscilloscope on the demo probe: a sine and a triangle on the analog channels, two digital channels below, M1 = CH1 XOR CH2 and M2 = CH3 x CH4](docs/screenshots/scope-demo-dark.png)
 
 ![The rack, dark theme, connected to the emulated RTR-OS running a 16-bit counter on GPIO 4 to 19](docs/screenshots/rack-dark.png)
 
@@ -56,10 +56,11 @@ Stage 2 of the plan: the rack and the mixed-signal oscilloscope, on the emulator
 - **Wires** from either end: click a jack on the rack and then a channel jack on an instrument, or the other way round; while a wire is being made the cable follows the mouse across the desktop (Esc cancels); clicking a wired channel key again removes the wire. On Windows and X11 every wire is a **cable drawn across the desktop** — a hanging curve with shadow and plugs, in its own always-on-top, click-through window — so it goes over whatever is between the rack and the instrument. The WIRES key on the rack hides them, and they are hidden whenever no window of the bench has the focus, so they never sit over other applications. On Wayland (no window positions) the ends show the plug and the port name instead.
 - The **demo probe** (DEMO key on the rack): synthetic signals with no target — an 8-bit counter and a PWM on digital ports, a sine, a triangle, a ramp and a noisy sine on analog ports sampled at 1 MS/s. It shows the bench without hardware and stands in for the analog channels until the ADALM2000 arrives.
 - The **oscilloscope**: four channels, digital or analog according to the port wired; 1-2-5 time base from 10 ns/div to 10 s/div, position; volts/div (10 mV to 10 V) and offset per analog channel; trigger by channel, slope and mode (auto, normal, single), with a level knob for an analog source; run/stop; memory of a million transitions or samples per channel, dense regions drawn as bands or min/max columns; cursors with Δt and 1/Δt; measurements of the selected channel (digital: frequency, period, widths, duty, edges; analog: Vpp, Vmax, Vmin, Vmean, Vrms, frequency, period); keyboard (space, S, C, arrows, + −).
-- `rtr-probe-dump`: console tool that prints what the probe sends; `rtr-bench --probe demo --open scope --wire scope:1=9 --screenshot scope=FILE.png` starts on a probe, opens, wires and saves a window with its transparent margins (`scripts\screenshot.ps1`).
-- Windowless tests (Catch2): protocol parser, event queue, port state, trace ring, trigger search, measurements, time base, themes.
+- **Math channels** M1 and M2: new channels computed from a formula over up to four variables A–D, each variable any input channel or the other math channel. The formula comes from a combo grouped by kind and number of inputs — digital (NOT, AND, OR, XOR, NAND, NOR, XNOR, A AND NOT B, SR and D latches, three-input AND/OR/XOR, majority, gating, multiplexer, four-input AND/OR, parity, 2-of-4, (A AND B) OR (C AND D)) and analog (negation, absolute value, square, sum, difference, product, quotient, average, min, max, three- and four-input sums and averages, A×B − C×D, (A − B)/(C − D)). Variables of the wrong kind are swapped for the next wired channel of the right kind. Math channels have measurements, cursors, volts/div and offset like the others; the readout line shows the expression ("M1 = CH1 XOR CH2").
+- `rtr-probe-dump`: console tool that prints what the probe sends; `rtr-bench --probe demo --open scope --wire scope:1=9 --math "1=A XOR B" --screenshot scope=FILE.png` starts on a probe, opens, wires, enables a formula and saves a window with its transparent margins (`scripts\screenshot.ps1`).
+- Windowless tests (Catch2): protocol parser, event queue, port state, trace ring, trigger search, measurements, time base, formulas, themes.
 
-Not there yet: math channels, the other instruments, settings persistence.
+Not there yet: the other instruments, settings persistence.
 
 ## Repository layout
 
