@@ -29,6 +29,14 @@ struct DigitalEvent {
     static constexpr uint8_t Snapshot = 1;
 };
 
+// A block of analog samples of one port, at a fixed interval, in volts.
+struct AnalogBlock {
+    int64_t t0_ns;            // time of the first sample
+    int64_t dt_ns;            // interval between samples
+    uint16_t port;
+    std::vector<float> volts;
+};
+
 struct ProbeCapabilities {
     std::string name;          // "Emulator (rtr-scope)"
     std::string target;        // "Raspberry Pi 4 (qemu-pi4)"
@@ -65,6 +73,8 @@ public:
     // Moves the events received since the last call into `out` (appends).
     // Called from the interface thread once per frame.
     virtual void poll(std::vector<DigitalEvent> &out) = 0;
+    // Same for the analog blocks; a probe without analog ports leaves `out` alone.
+    virtual void poll_analog(std::vector<AnalogBlock> &out) { (void)out; }
 
     // Asks the target for the level of every port; the answer arrives as
     // Snapshot events.

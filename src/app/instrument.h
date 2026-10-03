@@ -27,6 +27,7 @@ public:
     virtual void draw(ui::Window &window) = 0;
     // Events of this frame, all ports; the instrument keeps those it is wired to.
     virtual void feed(const std::vector<core::DigitalEvent> &events) = 0;
+    virtual void feed_analog(const std::vector<core::AnalogBlock> &blocks) { (void)blocks; }
     // The wiring changed (a channel got or lost its port).
     virtual void wiring_changed() {}
 };

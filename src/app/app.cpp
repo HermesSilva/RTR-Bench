@@ -28,11 +28,55 @@ const char *instrument_name(Instrument kind)
 
 App::App()
 {
-    probe_ = std::make_unique<probes::EmulatorProbe>();
     last_rate_time_ = std::chrono::steady_clock::now();
 }
 
 App::~App() = default;
+
+void App::create_probe(ProbeKind kind)
+{
+    if (probe_) {
+        probe_->disconnect();
+    }
+    switch (kind) {
+    case ProbeKind::Demo:
+        probe_ = std::make_unique<probes::DemoProbe>();
+        break;
+    case ProbeKind::Emulator:
+        probe_ = std::make_unique<probes::EmulatorProbe>();
+        break;
+    }
+    probe_kind_ = kind;
+    ports_ = core::PortState(probe_->ports().size());
+    // Ports have another meaning now: every wire is removed.
+    wires_.clear();
+    selected_port_ = -1;
+    offered_ = false;
+    for (OpenInstrument &i : instruments_) {
+        i.instrument->wiring_changed();
+    }
+    last_event_count_ = 0;
+    events_per_second_ = 0.0;
+    probe_->connect();
+}
+
+void App::switch_probe(ProbeKind kind)
+{
+    if (kind == probe_kind_) {
+        return;
+    }
+    switch_pending_ = true;
+    switch_to_ = kind;
+}
+
+const core::PortInfo *App::port_info(int port) const
+{
+    const std::vector<core::PortInfo> &ports = probe_->ports();
+    if (port < 0 || static_cast<size_t>(port) >= ports.size()) {
+        return nullptr;
+    }
+    return &ports[static_cast<size_t>(port)];
+}
 
 void App::open_rack()
 {
@@ -230,13 +274,20 @@ void App::pump_probe()
     for (const core::DigitalEvent &e : events_) {
         ports_.apply(e);
     }
+    analog_.clear();
+    probe_->poll_analog(analog_);
     for (OpenInstrument &i : instruments_) {
         i.instrument->feed(events_);
+        if (!analog_.empty()) {
+            i.instrument->feed_analog(analog_);
+        }
     }
-    functions_.clear();
-    probe_->poll_functions(functions_);
-    for (const probes::EmulatorProbe::FunctionChange &f : functions_) {
-        ports_.set_direction(f.port, probes::fsel_direction(f.fsel));
+    if (auto *emu = dynamic_cast<probes::EmulatorProbe *>(probe_.get())) {
+        functions_.clear();
+        emu->poll_functions(functions_);
+        for (const probes::EmulatorProbe::FunctionChange &f : functions_) {
+            ports_.set_direction(f.port, probes::fsel_direction(f.fsel));
+        }
     }
     ports_.end_frame();
 
@@ -262,7 +313,7 @@ int App::run()
         ui::platform_shutdown();
         return 1;
     }
-    probe_->connect();
+    create_probe(probe_kind_);
     for (Instrument kind : open_at_start_) {
         create_instrument(kind);
     }
@@ -275,6 +326,10 @@ int App::run()
     while (rack_window_ && !rack_window_->close_requested()) {
         ui::platform_poll();
         open_pending();
+        if (switch_pending_) {
+            switch_pending_ = false;
+            create_probe(switch_to_);
+        }
         pump_probe();
         if (!screenshots_.empty()) {
             double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();

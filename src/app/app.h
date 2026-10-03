@@ -12,6 +12,7 @@
 #include "app/rack.h"
 #include "core/port_state.h"
 #include "core/probe.h"
+#include "probes/demo_probe.h"
 #include "probes/emulator_probe.h"
 #include "ui/theme.h"
 #include "ui/window.h"
@@ -27,6 +28,8 @@ struct Wire {
 
 class App {
 public:
+    enum class ProbeKind { Emulator, Demo };
+
     App();
     ~App();
 
@@ -37,13 +40,18 @@ public:
     // PNG of each named window ("rack", "scope", ...) and quits.
     void screenshot(const std::string &window_name, const std::string &path);
     void set_screenshot_delay(double delay_seconds) { screenshot_delay_ = delay_seconds; }
-    // Start-up actions from the command line: open an instrument, make a wire.
+    // Start-up actions from the command line: probe, open an instrument, make a wire.
+    void probe_at_start(ProbeKind kind) { probe_kind_ = kind; }
     void open_at_start(Instrument kind) { open_at_start_.push_back(kind); }
     void wire_at_start(Instrument kind, int channel, int port) { wires_at_start_.push_back(Wire{kind, channel, port}); }
 
     // For the rack and the instruments.
     core::Probe &probe() { return *probe_; }
     const core::PortState &ports() const { return ports_; }
+    ProbeKind probe_kind() const { return probe_kind_; }
+    void switch_probe(ProbeKind kind);   // deferred to between frames
+    // The port of the current probe, by index; null when out of range.
+    const core::PortInfo *port_info(int port) const;
     double events_per_second() const { return events_per_second_; }
     void open_instrument(Instrument kind);
     bool instrument_open(Instrument kind) const;
@@ -70,9 +78,15 @@ private:
     void make_wire(Instrument instrument, int channel, int port);
     InstrumentBase *find_instrument(Instrument kind);
 
-    std::unique_ptr<probes::EmulatorProbe> probe_;
+    void create_probe(ProbeKind kind);
+
+    std::unique_ptr<core::Probe> probe_;
+    ProbeKind probe_kind_ = ProbeKind::Emulator;
+    bool switch_pending_ = false;
+    ProbeKind switch_to_ = ProbeKind::Emulator;
     core::PortState ports_{28};
     std::vector<core::DigitalEvent> events_;
+    std::vector<core::AnalogBlock> analog_;
     std::vector<probes::EmulatorProbe::FunctionChange> functions_;
 
     std::unique_ptr<ui::Window> rack_window_;

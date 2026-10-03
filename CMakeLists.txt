@@ -74,9 +74,11 @@ add_library(rtr-core STATIC
     src/core/scope_protocol.cpp
     src/core/port_state.cpp
     src/core/trace.cpp
+    src/core/analog_trace.cpp
     src/core/scope_engine.cpp
     src/probes/tcp_client.cpp
-    src/probes/emulator_probe.cpp)
+    src/probes/emulator_probe.cpp
+    src/probes/demo_probe.cpp)
 target_include_directories(rtr-core PUBLIC src)
 target_compile_definitions(rtr-core PUBLIC
     $<$<PLATFORM_ID:Windows>:NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS>)

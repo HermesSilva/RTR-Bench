@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "app/rack.h"
 
+#include <algorithm>
 #include <cstdio>
 
 #include <imgui.h>
@@ -87,10 +88,16 @@ void Rack::draw(ui::Window &window)
     ui::group_frame(probe_min, probe_max, "PROBE", s);
     float x = probe_min.x + 10.0f * s;
     float y = probe_min.y + 10.0f * s;
-    float kw = (probe_max.x - probe_min.x - 20.0f * s - 2.0f * gap) / 3.0f;
-    ui::key("##probe-emu", "EMU", ImVec2(x, y), ImVec2(kw, key_h), true, t.led_run, s);
-    ui::key("##probe-m2k", "M2K", ImVec2(x + kw + gap, y), ImVec2(kw, key_h), false, t.led_run, s, false);
-    ui::key("##probe-replay", "REPLAY", ImVec2(x + 2.0f * (kw + gap), y), ImVec2(kw, key_h), false, t.led_run,
+    float kw = (probe_max.x - probe_min.x - 20.0f * s - 3.0f * gap) / 4.0f;
+    bool emu = app_.probe_kind() == App::ProbeKind::Emulator;
+    if (ui::key("##probe-emu", "EMU", ImVec2(x, y), ImVec2(kw, key_h), emu, t.led_run, s)) {
+        app_.switch_probe(App::ProbeKind::Emulator);
+    }
+    if (ui::key("##probe-demo", "DEMO", ImVec2(x + kw + gap, y), ImVec2(kw, key_h), !emu, t.led_run, s)) {
+        app_.switch_probe(App::ProbeKind::Demo);
+    }
+    ui::key("##probe-m2k", "M2K", ImVec2(x + 2.0f * (kw + gap), y), ImVec2(kw, key_h), false, t.led_run, s, false);
+    ui::key("##probe-replay", "REPLAY", ImVec2(x + 3.0f * (kw + gap), y), ImVec2(kw, key_h), false, t.led_run,
             s, false);
     y += key_h + 9.0f * s;
 
@@ -100,8 +107,8 @@ void Rack::draw(ui::Window &window)
     ui::led(ImVec2(x + 5.0f * s, y + line_h * 0.5f), 4.0f * s, state_colour,
             state != core::ProbeState::Disconnected, s);
     char line[128];
-    auto *emu = dynamic_cast<probes::EmulatorProbe *>(&probe);
-    std::snprintf(line, sizeof(line), "%s  %s", state_text(state), emu ? emu->address().c_str() : "");
+    auto *emu_probe = dynamic_cast<probes::EmulatorProbe *>(&probe);
+    std::snprintf(line, sizeof(line), "%s  %s", state_text(state), emu_probe ? emu_probe->address().c_str() : "");
     draw->AddText(ImVec2(x + 15.0f * s, y), t.label, line);
     y += line_h + 3.0f * s;
     if (state == core::ProbeState::Connected) {
@@ -166,30 +173,35 @@ void Rack::draw(ui::Window &window)
     // ---- PORTS: two rows of jacks between the two groups ------------------
     ImVec2 ports_min(probe_max.x + 10.0f * s, top);
     ImVec2 ports_max(inst_min.x - 10.0f * s, bottom);
-    ui::group_frame(ports_min, ports_max, "PORTS  GPIO (BCM)  ground is automatic", s);
+    ui::group_frame(ports_min, ports_max, emu ? "PORTS  GPIO (BCM)  ground is automatic" : "PORTS  ground is automatic", s);
     const std::vector<core::PortInfo> &ports = probe.ports();
     const core::PortState &state_of = app_.ports();
     const int per_row = 14;
+    const int rows = std::max(1, (static_cast<int>(ports.size()) + per_row - 1) / per_row);
     const float radius = 10.0f * s;
     float cell_w = (ports_max.x - ports_min.x - 12.0f * s) / per_row;
-    float row_h = (ports_max.y - ports_min.y - 10.0f * s) / 2.0f;
-    for (size_t i = 0; i < ports.size() && i < 28; i++) {
+    float row_h = (ports_max.y - ports_min.y - 10.0f * s) / static_cast<float>(std::max(rows, 2));
+    for (size_t i = 0; i < ports.size() && i < state_of.size(); i++) {
         int row = static_cast<int>(i) / per_row;
         int col = static_cast<int>(i) % per_row;
         ImVec2 centre(ports_min.x + 6.0f * s + cell_w * (static_cast<float>(col) + 0.5f),
                       ports_min.y + 10.0f * s + row_h * static_cast<float>(row) + radius + 3.0f * s);
         const core::PortStatus &ps = state_of.at(i);
         ui::JackLook look;
-        char name[8];
-        std::snprintf(name, sizeof(name), "%d", ports[i].index);
+        char name[16];
+        if (emu) {
+            std::snprintf(name, sizeof(name), "%d", ports[i].index);
+        } else {
+            std::snprintf(name, sizeof(name), "%s", ports[i].name.c_str());
+        }
         look.name = name;
-        look.level = ps.level;
+        look.level = ports[i].analog ? -1 : ps.level;
         look.active = ps.recent > 0;
         look.input = ps.direction == core::PortDirection::Input;
         look.output = ps.direction == core::PortDirection::Output;
         look.wire_colour = app_.port_wire_colour(static_cast<int>(i));
-        char id[24];
-        std::snprintf(id, sizeof(id), "##jack%zu", i);
+        char id[40];
+        std::snprintf(id, sizeof(id), "##jack%u", static_cast<unsigned>(i));
         if (ui::jack(id, centre, radius, look, s)) {
             app_.select_port(static_cast<int>(i));
         }

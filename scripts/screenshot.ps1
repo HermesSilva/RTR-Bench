@@ -36,4 +36,13 @@ $p = Start-Process -FilePath $exe -ArgumentList $argv -PassThru -Wait
 if ($p.ExitCode -ne 0 -or -not (Test-Path $Out)) {
     Write-Error "Screenshot failed (exit $($p.ExitCode))."
 }
+
+# The bench writes uncompressed PNGs (no zlib dependency): recompress them so
+# the repository stays small. The alpha channel is preserved.
+Add-Type -AssemblyName System.Drawing
+$src = [System.Drawing.Image]::FromFile($Out)
+$bmp = New-Object System.Drawing.Bitmap $src
+$src.Dispose()
+$bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
+$bmp.Dispose()
 Write-Output $Out

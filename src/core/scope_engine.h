@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "core/analog_trace.h"
 #include "core/trace.h"
 
 namespace core {
@@ -58,8 +59,35 @@ struct Measurements {
 // it (the previous one plus holdoff).
 int64_t find_trigger(const DigitalTrace &source, TriggerSlope slope, int64_t latest_ns, int64_t pre_ns,
                      int64_t post_ns, int64_t after_ns);
+// Same on an analog trace: a crossing of `level` volts.
+int64_t find_analog_trigger(const AnalogTrace &source, float level, TriggerSlope slope, int64_t latest_ns,
+                            int64_t pre_ns, int64_t post_ns, int64_t after_ns);
 
 Measurements measure(const DigitalTrace &trace, int64_t t0, int64_t t1);
+
+struct AnalogMeasurements {
+    bool valid = false;        // at least one sample in the window
+    float vmax = 0.0f;
+    float vmin = 0.0f;
+    float vpp = 0.0f;
+    float vmean = 0.0f;
+    float vrms = 0.0f;
+    bool periodic = false;     // frequency and period found
+    double frequency_hz = 0.0;
+    int64_t period_ns = 0;
+};
+AnalogMeasurements measure_analog(const AnalogTrace &trace, int64_t t0, int64_t t1);
+
+// 1-2-5 volts/div steps from 10 mV to 10 V.
+const std::vector<float> &volts_per_div_steps();
+void format_volts(char *out, size_t size, float volts);
+
+// What the trigger looks at: a digital trace, or an analog one with a level.
+struct TriggerSource {
+    const DigitalTrace *digital = nullptr;
+    const AnalogTrace *analog = nullptr;
+    float level = 0.0f;
+};
 
 class ScopeEngine {
 public:
@@ -75,8 +103,14 @@ public:
     int64_t ns_per_div() const { return time_per_div_steps()[static_cast<size_t>(settings.time_step)]; }
 
     // Decides the view for this frame from the trigger source and the latest
-    // time known to the probe. `source` may be null (channel unwired).
-    void update(const DigitalTrace *source, int64_t latest_ns);
+    // time known to the probe. An empty source (channel unwired) free-runs.
+    void update(const TriggerSource &source, int64_t latest_ns);
+    void update(const DigitalTrace *source, int64_t latest_ns)
+    {
+        TriggerSource ts;
+        ts.digital = source;
+        update(ts, latest_ns);
+    }
     const ScopeView &view() const { return view_; }
 
     // Moves the view when stopped (scrolling through memory) or shifts the

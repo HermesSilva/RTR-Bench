@@ -12,6 +12,7 @@ namespace {
 
 const char *usage =
     "usage: rtr-bench [options]\n"
+    "  --probe NAME             probe to start with: emulator (default) or demo\n"
     "  --open NAME              open an instrument at start (scope)\n"
     "  --wire NAME:CH=PORT      wire channel CH of an instrument to a port (--wire scope:1=18)\n"
     "  --screenshot NAME=FILE   write a PNG of a window (rack, scope) with alpha, then quit\n"
@@ -46,7 +47,16 @@ int run(int argc, char **argv)
             return 2;
         }
         i++;
-        if (arg == "--open") {
+        if (arg == "--probe") {
+            if (value == "emulator") {
+                app.probe_at_start(app::App::ProbeKind::Emulator);
+            } else if (value == "demo") {
+                app.probe_at_start(app::App::ProbeKind::Demo);
+            } else {
+                std::printf("rtr-bench: unknown probe '%s'\n", value.c_str());
+                return 2;
+            }
+        } else if (arg == "--open") {
             app::Instrument kind;
             if (!parse_instrument(value, kind)) {
                 std::printf("rtr-bench: unknown instrument '%s'\n", value.c_str());

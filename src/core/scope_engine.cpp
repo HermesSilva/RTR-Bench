@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "core/scope_engine.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 
@@ -101,6 +102,118 @@ int64_t find_trigger(const DigitalTrace &source, TriggerSlope slope, int64_t lat
     return -1;
 }
 
+int64_t find_analog_trigger(const AnalogTrace &source, float level, TriggerSlope slope, int64_t latest_ns,
+                            int64_t pre_ns, int64_t post_ns, int64_t after_ns)
+{
+    if (source.size() < 2) {
+        return -1;
+    }
+    int64_t dt = source.dt_ns();
+    size_t i = source.size();
+    while (i-- > 1) {
+        int64_t t = source.first_ns() + static_cast<int64_t>(i) * dt;
+        if (t <= after_ns) {
+            return -1;
+        }
+        if (t + post_ns > latest_ns) {
+            continue;
+        }
+        if (t - pre_ns < source.first_ns()) {
+            return -1;
+        }
+        float prev = source.at(i - 1);
+        float cur = source.at(i);
+        bool rising = prev < level && cur >= level;
+        bool falling = prev >= level && cur < level;
+        if ((slope == TriggerSlope::Rising && rising) || (slope == TriggerSlope::Falling && falling) ||
+            (slope == TriggerSlope::Either && (rising || falling))) {
+            // Interpolate the crossing inside the sample interval.
+            float span = cur - prev;
+            float f = span != 0.0f ? (level - prev) / span : 0.0f;
+            return t - dt + static_cast<int64_t>(f * static_cast<float>(dt));
+        }
+    }
+    return -1;
+}
+
+AnalogMeasurements measure_analog(const AnalogTrace &trace, int64_t t0, int64_t t1)
+{
+    AnalogMeasurements m;
+    size_t begin = trace.index_at(t0);
+    size_t end = trace.index_at(t1 + 1);
+    if (begin >= end) {
+        return m;
+    }
+    m.valid = true;
+    double sum = 0.0;
+    double sum_sq = 0.0;
+    m.vmin = trace.at(begin);
+    m.vmax = m.vmin;
+    for (size_t i = begin; i < end; i++) {
+        float v = trace.at(i);
+        m.vmin = std::min(m.vmin, v);
+        m.vmax = std::max(m.vmax, v);
+        sum += v;
+        sum_sq += static_cast<double>(v) * v;
+    }
+    double n = static_cast<double>(end - begin);
+    m.vpp = m.vmax - m.vmin;
+    m.vmean = static_cast<float>(sum / n);
+    m.vrms = static_cast<float>(std::sqrt(sum_sq / n));
+
+    // Frequency from rising crossings of the mean, with hysteresis of 10 % of
+    // the swing so noise does not count.
+    float hyst = m.vpp * 0.1f;
+    if (hyst <= 0.0f) {
+        return m;
+    }
+    float hi = m.vmean + hyst * 0.5f;
+    float lo = m.vmean - hyst * 0.5f;
+    bool below = trace.at(begin) < lo;
+    int64_t first_cross = -1;
+    int64_t last_cross = -1;
+    int crossings = 0;
+    for (size_t i = begin + 1; i < end; i++) {
+        float v = trace.at(i);
+        if (below && v >= hi) {
+            int64_t t = trace.first_ns() + static_cast<int64_t>(i) * trace.dt_ns();
+            if (first_cross < 0) {
+                first_cross = t;
+            } else {
+                crossings++;
+            }
+            last_cross = t;
+            below = false;
+        } else if (!below && v < lo) {
+            below = true;
+        }
+    }
+    if (crossings > 0) {
+        m.periodic = true;
+        m.period_ns = (last_cross - first_cross) / crossings;
+        m.frequency_hz = m.period_ns > 0 ? 1e9 / static_cast<double>(m.period_ns) : 0.0;
+    }
+    return m;
+}
+
+const std::vector<float> &volts_per_div_steps()
+{
+    static const std::vector<float> steps = {0.01f, 0.02f, 0.05f, 0.1f, 0.2f, 0.5f, 1.0f, 2.0f, 5.0f, 10.0f};
+    return steps;
+}
+
+void format_volts(char *out, size_t size, float volts)
+{
+    float a = volts < 0.0f ? -volts : volts;
+    if (a < 1.0f) {
+        std::snprintf(out, size, "%.0f mV", static_cast<double>(volts) * 1000.0);
+    } else if (a < 10.0f) {
+        std::snprintf(out, size, "%.2f V", static_cast<double>(volts));
+    } else {
+        std::snprintf(out, size, "%.1f V", static_cast<double>(volts));
+    }
+}
+
 Measurements measure(const DigitalTrace &trace, int64_t t0, int64_t t1)
 {
     Measurements m;
@@ -176,7 +289,7 @@ int64_t ScopeEngine::window_ns() const
     return ns_per_div() * scope_divisions;
 }
 
-void ScopeEngine::update(const DigitalTrace *source, int64_t latest_ns)
+void ScopeEngine::update(const TriggerSource &source, int64_t latest_ns)
 {
     if (!running_ || latest_ns < 0) {
         return;
@@ -186,9 +299,12 @@ void ScopeEngine::update(const DigitalTrace *source, int64_t latest_ns)
     int64_t post = width - pre;
     bool roll = ns_per_div() >= 100000000LL;  // 100 ms/div and slower
 
-    if (!roll && source) {
+    if (!roll && (source.digital || source.analog)) {
         int64_t after = last_trigger_ns_ >= 0 ? last_trigger_ns_ + settings.holdoff_ns : -1;
-        int64_t trigger = find_trigger(*source, settings.slope, latest_ns, pre, post, after);
+        int64_t trigger = source.digital
+                              ? find_trigger(*source.digital, settings.slope, latest_ns, pre, post, after)
+                              : find_analog_trigger(*source.analog, source.level, settings.slope, latest_ns, pre,
+                                                    post, after);
         if (trigger >= 0) {
             view_.t0 = trigger - pre + settings.position_ns;
             view_.t1 = trigger + post + settings.position_ns;
