@@ -232,7 +232,9 @@ void Generator::draw_waveform_combo(Output &o, int index, ImVec2 pos, ImVec2 siz
     draw->AddTriangleFilled(ImVec2(cx - 5.0f * s, cy - 3.0f * s), ImVec2(cx + 5.0f * s, cy - 3.0f * s),
                             ImVec2(cx, cy + 3.0f * s), t.label_dim);
 
-    ImGui::SetNextWindowPos(ImVec2(pos.x, pos.y + size.y + 4.0f * s));
+    float popup_h = static_cast<float>(core::waveform_count - 1) * (mono->FontSize + 3.0f * s) +
+                    4.0f * (ui::fonts().small->FontSize + 7.0f * s) + 20.0f * s;
+    ImGui::SetNextWindowPos(ui::popup_position(pos, size, popup_h, s));
     ImGui::SetNextWindowSize(ImVec2(size.x + 60.0f * s, 0.0f));
     ImGui::PushStyleColor(ImGuiCol_PopupBg, t.screen);
     ImGui::PushStyleColor(ImGuiCol_Border, t.chassis_edge);
@@ -346,7 +348,7 @@ void Generator::draw_module(ui::Window &window, int index, ImVec2 min, ImVec2 ma
     std::snprintf(id, sizeof(id), "##out%d", index);
     bool usable = (o.port >= 0 && drivable && can_drive) || app_.port_wire_colour(vport) != 0;
     (void)analog_port;
-    if (ui::key(id, o.on ? "ON" : "OUTPUT", ImVec2(x, y), ImVec2(out_w, key_h), o.on, t.led_run, s, usable)) {
+    if (ui::key(id, o.on ? "ON" : "OFF", ImVec2(x, y), ImVec2(out_w, key_h), o.on, t.led_run, s, usable)) {
         o.on = !o.on;
         o.dirty = true;
     }

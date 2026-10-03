@@ -59,7 +59,8 @@ the requirements of the area you touch before changing anything.
 
 - **Every release updates the screenshots** in `docs/screenshots/` for every
   interface that changed (rack, each instrument, each theme where relevant)
-  and the README shows them. Use `scripts\screenshot.ps1` so the captures
+  and the README shows them. Use `scripts\shots.ps1` (the demo scenes, three
+  themes) and `scripts\screenshot.ps1` (emulator scenes) so the captures
   have the same size and theme set. A release with changed screens and old
   screenshots is not finished.
 - Version is `0.1.<build>`: `build-number.txt` is incremented by every

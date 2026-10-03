@@ -46,4 +46,18 @@ int knob(const char *id, ImVec2 centre, float radius, const char *label, float s
 // A readout box on the panel: a dark window with text in the mono font.
 void readout(ImVec2 min, ImVec2 max, const char *text, uint32_t colour, float scale);
 
+// A dropdown: a dark window showing the current item, a click opens the
+// list under it; items with the same group share a dim heading. Returns the
+// index chosen this frame, or -1.
+// Where a list of height `h` opens for a control at `pos`/`size`: under it
+// when that fits the window, above it when that does, else at the top.
+ImVec2 popup_position(ImVec2 pos, ImVec2 size, float h, float scale);
+
+struct DropdownItem {
+    const char *name;
+    const char *group;   // may be null
+};
+int dropdown(const char *id, ImVec2 pos, ImVec2 size, const DropdownItem *items, int count, int current,
+             uint32_t colour, float scale);
+
 }  // namespace ui

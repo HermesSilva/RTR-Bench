@@ -174,6 +174,16 @@ InstrumentBase *App::find_instrument(InstrumentId id)
     return nullptr;
 }
 
+const InstrumentBase *App::instrument(InstrumentId id) const
+{
+    for (const OpenInstrument &i : instruments_) {
+        if (i.instrument->id() == id) {
+            return i.instrument.get();
+        }
+    }
+    return nullptr;
+}
+
 bool App::instrument_open(Instrument kind) const
 {
     for (const OpenInstrument &i : instruments_) {
@@ -331,7 +341,14 @@ uint32_t App::port_wire_colour(int port) const
     if (!port_wired_to(port, instrument, channel)) {
         return 0;
     }
-    return ui::channel_colour(channel % ui::channel_count);
+    return wire_colour(instrument, channel);
+}
+
+uint32_t App::wire_colour(InstrumentId instrument, int channel) const
+{
+    const InstrumentBase *i = this->instrument(instrument);
+    int index = i ? i->channel_colour_index(channel) : channel;
+    return ui::channel_colour(index % ui::channel_count);
 }
 
 void App::make_wire(InstrumentId instrument, int channel, int port)
@@ -342,7 +359,10 @@ void App::make_wire(InstrumentId instrument, int channel, int port)
         return;
     }
     // Pertinent only: a virtual port (an output) feeds an input instrument.
+    // A refused plug drops the cable being made.
     if (virt && is_output_instrument(instrument.kind)) {
+        selected_port_ = -1;
+        offered_ = false;
         return;
     }
     unwire(instrument, channel);
@@ -464,7 +484,7 @@ int App::publish_output(InstrumentId instrument, int channel, const core::WaveSp
             v.on = on;
             v.seen = true;
             v.info.analog = core::waveform_is_analog(spec.kind);
-            v.info.digital = !v.info.analog;
+            v.info.digital = true;   // an analog output also has its logic level
             if (kind_changed) {
                 v.phase = 0.0;
                 v.edge_ns = virtual_clock_ns_;
@@ -482,7 +502,7 @@ int App::publish_output(InstrumentId instrument, int channel, const core::WaveSp
     v.info.index = virtual_port_base + static_cast<int>(virtual_ports_.size());
     v.info.name = instrument_label(instrument) + " OUT" + std::to_string(channel + 1);
     v.info.analog = core::waveform_is_analog(spec.kind);
-    v.info.digital = !v.info.analog;
+    v.info.digital = true;
     v.info.drivable = false;
     virtual_ports_.push_back(v);
     return v.info.index;
@@ -495,7 +515,18 @@ void App::pump_virtual_ports()
     static thread_local std::mt19937 rng(std::random_device{}());
     std::uniform_real_distribution<double> noise(-1.0, 1.0);
     int64_t now = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - virtual_start_).count();
-    int64_t from = virtual_clock_ns_;
+    if (probe_offset_known_) {
+        // In step with the probe while it delivers; free-running on the
+        // recovered offset when it has been silent for half a second.
+        if (now - probe_latest_wall_ns_ < 500000000LL) {
+            now = probe_latest_ns_;
+        } else {
+            now += probe_latest_ns_ - probe_latest_wall_ns_;
+        }
+    }
+    now = std::max(now, virtual_clock_ns_);   // never backwards
+    // At most one second is generated at once (the first frame, a stall).
+    int64_t from = std::max(virtual_clock_ns_, now - static_cast<int64_t>(1000000000LL));
     virtual_clock_ns_ = now;
     // Saved wires to an output get made as soon as it has been published.
     for (size_t p = 0; p < pending_virtual_wires_.size();) {
@@ -586,6 +617,13 @@ void App::pump_virtual_ports()
                     break;
                 }
                 block.volts[k] = static_cast<float>(val + s.offset_v);
+                // The logic level of the sample for the digital consumers.
+                int level = block.volts[k] >= 1.8f ? 1 : 0;
+                if (level != v.level) {
+                    v.level = level;
+                    events_.push_back(core::DigitalEvent{block.t0_ns + static_cast<int64_t>(k) * dt, block.port,
+                                                         static_cast<uint8_t>(level), core::DigitalEvent::Transition});
+                }
             }
             analog_.push_back(std::move(block));
             continue;
@@ -828,7 +866,7 @@ void App::update_overlays()
         if (!p || !p->valid || !c || !c->valid) {
             continue;
         }
-        place(p->x, p->y, c->x, c->y, ui::channel_colour(w.channel % ui::channel_count), false);
+        place(p->x, p->y, c->x, c->y, wire_colour(w.instrument, w.channel), false);
     }
     int cx = 0;
     int cy = 0;
@@ -840,7 +878,7 @@ void App::update_overlays()
             colour = ui::current_theme().led_warn;
         } else if (offered_) {
             from = channel_anchor(offered_instrument_, offered_channel_);
-            colour = ui::channel_colour(offered_channel_ % ui::channel_count);
+            colour = wire_colour(offered_instrument_, offered_channel_);
         }
         if (from && from->valid) {
             place(from->x, from->y, static_cast<float>(cx), static_cast<float>(cy), colour, true);
@@ -1058,6 +1096,21 @@ void App::pump_probe()
     }
     analog_.clear();
     probe_->poll_analog(analog_);
+    // The probe's clock, recovered: its latest timestamp against the wall
+    // clock, so the virtual ports run on the same time line as the probe.
+    int64_t latest = -1;
+    for (const core::DigitalEvent &e : events_) {
+        latest = std::max(latest, e.ns);
+    }
+    for (const core::AnalogBlock &b : analog_) {
+        latest = std::max(latest, b.t0_ns + static_cast<int64_t>(b.volts.size()) * b.dt_ns);
+    }
+    if (latest >= 0) {
+        probe_latest_ns_ = latest;
+        probe_latest_wall_ns_ =
+            std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - virtual_start_).count();
+        probe_offset_known_ = true;
+    }
     pump_virtual_ports();   // outputs wired straight into inputs
     for (OpenInstrument &i : instruments_) {
         i.instrument->feed(events_);
@@ -1162,6 +1215,14 @@ int App::run()
         if (switch_pending_) {
             switch_pending_ = false;
             create_probe(switch_to_);
+            // A new probe, a new time line.
+            probe_offset_known_ = false;
+            virtual_clock_ns_ = 0;
+            virtual_start_ = std::chrono::steady_clock::now();
+            for (VirtualPort &v : virtual_ports_) {
+                v.edge_ns = 0;
+                v.level = 0;
+            }
         }
         pump_probe();
         begin_anchors();

@@ -28,6 +28,11 @@ float mono_width(const char *text);
 void seven_text(ImDrawList *draw, ImVec2 pos, uint32_t colour, const char *text);
 float seven_width(const char *text);
 float seven_height();
+// A display window: dark screen, the value in seven-segment digits right-aligned
+// before the unit. The value shrinks when it would not fit the window.
+// `top_inset` keeps the top of the window free (a line of statistics).
+void seven_display(ImDrawList *draw, ImVec2 min, ImVec2 max, uint32_t value_colour, const char *value, uint32_t unit_colour,
+                   const char *unit, float scale, float top_inset = 0.0f);
 
 // "G18" for "GPIO 18", else the port name; "--" when unwired.
 std::string short_port_name(const core::PortInfo *info);

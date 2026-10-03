@@ -26,6 +26,17 @@ PWM) e saídas analógicas AO0/AO1 na DEMO; pontas/saídas como mini-módulos em
 duas colunas, sem textos explicativos; todas as janelas com 940 px (duas lado
 a lado em Full HD); rack com uma fila de teclas e bornes em toda a largura;
 fios a 2,4 px; capturas nos três temas (`--theme`, `--place`).
+**Correções de 2026-10-03 (tarde)**: displays de sete segmentos com
+`panel::seven_display` (valor encolhe para caber; fonte com VOLTAGE/CURRENT e
+tensão do knob; estatísticas do DMM na linha de cima); teclas ON/OFF;
+multímetro com dropdown de função (V DC/AC/PP, FREQ, PERIOD, DUTY, WIDTH,
+COUNT, LEVEL em qualquer borne) e borne **COM** por ponta (livre = massa;
+ligado = leitura diferencial; dois canais por ponta); fonte publica DC em volts
+e toda saída virtual analógica emite também o nível lógico; relógio das portas
+virtuais preso ao último instante da sonda (uma só linha de tempo); faixa densa
+da pista digital só para transições no mesmo pixel; dropdown abre para cima
+quando não cabe; ligação recusada larga o cabo; tecla do canal no osciloscópio
+só seleciona; `--psu N=VOLTS`; `scripts\shots.ps1` regenera as capturas demo.
 **Etapas 4, 5 (parte da bancada) e 6 feitas** (2026-10-03, manhã):
 multímetro, gerador de padrões, fonte DC e analisador lógico, todos com a
 tecla **ADD** (pedido do usuário: cada clique cria uma nova ponta de medida

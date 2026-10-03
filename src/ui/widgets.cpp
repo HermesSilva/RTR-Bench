@@ -1,13 +1,33 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "ui/widgets.h"
 
+#include <algorithm>
 #include <cfloat>
 #include <cmath>
+#include <cstdio>
+#include <cstring>
 
 #include "ui/fonts.h"
 #include "ui/theme.h"
 
 namespace ui {
+
+// Where a list of height `h` opens for a control at `pos`/`size`: under it
+// when that fits the window, above it when that does, else at the top.
+ImVec2 popup_position(ImVec2 pos, ImVec2 size, float h, float s)
+{
+    const ImGuiViewport *vp = ImGui::GetMainViewport();
+    float bottom = vp->Pos.y + vp->Size.y - 4.0f * s;
+    float below = pos.y + size.y + 4.0f * s;
+    if (below + h <= bottom) {
+        return ImVec2(pos.x, below);
+    }
+    float above = pos.y - 4.0f * s - h;
+    if (above >= vp->Pos.y + 4.0f * s) {
+        return ImVec2(pos.x, above);
+    }
+    return ImVec2(pos.x, std::max(vp->Pos.y + 4.0f * s, bottom - h));
+}
 
 namespace {
 
@@ -210,6 +230,92 @@ void group_frame(ImVec2 min, ImVec2 max, const char *title, float scale)
         draw->AddRectFilled(sub(tp, ImVec2(4.0f * scale, 0)), add(tp, ImVec2(ts.x + 4.0f * scale, ts.y)), t.chassis);
         draw->AddText(tp, t.label_dim, title);
     }
+}
+
+}  // namespace ui
+
+namespace ui {
+
+int dropdown(const char *id, ImVec2 pos, ImVec2 size, const DropdownItem *items, int count, int current,
+             uint32_t colour, float s)
+{
+    const Theme &t = current_theme();
+    ImDrawList *draw = ImGui::GetWindowDrawList();
+    char popup[64];
+    std::snprintf(popup, sizeof(popup), "%s-list", id);
+
+    ImGui::SetCursorScreenPos(pos);
+    ImGui::InvisibleButton(id, size);
+    bool hovered = ImGui::IsItemHovered();
+    if (ImGui::IsItemClicked()) {
+        ImGui::OpenPopup(popup);
+    }
+    draw->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), hovered ? t.key_hover : t.screen, 4.0f * s);
+    draw->AddRect(pos, ImVec2(pos.x + size.x, pos.y + size.y), t.chassis_shadow, 4.0f * s, 0, 1.0f * s);
+    ImFont *mono = fonts().mono;
+    const char *name = current >= 0 && current < count ? items[current].name : "";
+    draw->AddText(mono, mono->FontSize, ImVec2(pos.x + 8.0f * s, pos.y + (size.y - mono->FontSize) * 0.5f), colour, name);
+    float cx = pos.x + size.x - 10.0f * s;
+    float cy = pos.y + size.y * 0.5f;
+    draw->AddTriangleFilled(ImVec2(cx - 4.0f * s, cy - 2.5f * s), ImVec2(cx + 4.0f * s, cy - 2.5f * s),
+                            ImVec2(cx, cy + 2.5f * s), t.label_dim);
+
+    int chosen = -1;
+    // Below the control when it fits in the window, else above it, else
+    // pinned to the top (the list is drawn inside the instrument's window).
+    int groups = 0;
+    for (int k = 0, g = -1; k < count; k++) {
+        if (items[k].group && (g < 0 || std::strcmp(items[g].group, items[k].group) != 0)) {
+            groups++;
+            g = k;
+        }
+    }
+    float popup_h = static_cast<float>(count) * (mono->FontSize + 3.0f * s) +
+                    static_cast<float>(groups) * (fonts().small->FontSize + 7.0f * s) + 20.0f * s;
+    ImGui::SetNextWindowPos(popup_position(pos, size, popup_h, s));
+    ImGui::SetNextWindowSize(ImVec2(size.x + 40.0f * s, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, t.screen);
+    ImGui::PushStyleColor(ImGuiCol_Border, t.chassis_edge);
+    ImGui::PushStyleColor(ImGuiCol_Text, t.readout);
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, t.key_hover);
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, t.key_pressed);
+    ImGui::PushStyleColor(ImGuiCol_Header, t.key);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f * s, 8.0f * s));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f * s, 3.0f * s));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f * s);
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f * s);
+    if (ImGui::BeginPopup(popup)) {
+        const char *group = nullptr;
+        for (int k = 0; k < count; k++) {
+            const char *g = items[k].group;
+            if (g && (!group || std::strcmp(group, g) != 0)) {
+                group = g;
+                if (k > 0) {
+                    ImGui::Spacing();
+                }
+                ImGui::PushFont(fonts().small);
+                ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(t.label_dim), "%s", g);
+                ImGui::PopFont();
+            }
+            bool is_current = k == current;
+            ImGui::PushFont(mono);
+            if (is_current) {
+                ImGui::PushStyleColor(ImGuiCol_Text, colour);
+            }
+            if (ImGui::Selectable(items[k].name, is_current)) {
+                chosen = k;
+                ImGui::CloseCurrentPopup();
+            }
+            if (is_current) {
+                ImGui::PopStyleColor();
+            }
+            ImGui::PopFont();
+        }
+        ImGui::EndPopup();
+    }
+    ImGui::PopStyleVar(4);
+    ImGui::PopStyleColor(6);
+    return chosen;
 }
 
 }  // namespace ui

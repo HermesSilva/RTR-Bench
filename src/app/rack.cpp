@@ -207,7 +207,9 @@ void Rack::draw(ui::Window &window)
             InstrumentId wired{Instrument::Scope, 0};
             int channel = 0;
             if (app_.port_wired_to(static_cast<int>(i), wired, channel)) {
-                ImGui::Text("wired to %s CH%d", instrument_label(wired).c_str(), channel + 1);
+                const InstrumentBase *target = app_.instrument(wired);
+                std::string ch = target ? target->channel_name(channel) : "CH" + std::to_string(channel + 1);
+                ImGui::Text("wired to %s %s", instrument_label(wired).c_str(), ch.c_str());
             } else if (app_.selected_port() == static_cast<int>(i)) {
                 ImGui::Text("selected: click a jack on an instrument");
             }

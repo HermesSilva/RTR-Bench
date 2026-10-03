@@ -18,31 +18,83 @@ namespace app {
 
 namespace {
 
-const char *function_label(Multimeter::Function f)
-{
-    switch (f) {
-    case Multimeter::Function::VoltsDC:
-        return "V DC";
-    case Multimeter::Function::VoltsAC:
-        return "V AC";
-    case Multimeter::Function::Frequency:
-        return "FREQ";
-    case Multimeter::Function::Duty:
-        return "DUTY";
-    case Multimeter::Function::Width:
-        return "WIDTH";
-    case Multimeter::Function::Count:
-        return "COUNT";
-    case Multimeter::Function::Level:
-        return "LEVEL";
-    }
-    return "";
-}
-
 // The window of signal a reading looks at: the last 200 ms known.
 constexpr int64_t reading_window_ns = 200000000LL;
+constexpr float logic_high_v = 3.3f;
+constexpr float logic_threshold_v = 1.8f;
+constexpr float module_row_h = 60.0f;
+
+void format_volts(char *text, size_t text_size, char *unit, size_t unit_size, double volts)
+{
+    if (std::fabs(volts) < 1.0) {
+        std::snprintf(text, text_size, "%.1f", volts * 1000.0);
+        std::snprintf(unit, unit_size, "mV");
+    } else {
+        std::snprintf(text, text_size, "%.3f", volts);
+        std::snprintf(unit, unit_size, "V");
+    }
+}
+
+void format_hertz(char *text, size_t text_size, char *unit, size_t unit_size, double hz)
+{
+    if (hz >= 1e6) {
+        std::snprintf(text, text_size, "%.4f", hz / 1e6);
+        std::snprintf(unit, unit_size, "MHz");
+    } else if (hz >= 1e3) {
+        std::snprintf(text, text_size, "%.3f", hz / 1e3);
+        std::snprintf(unit, unit_size, "kHz");
+    } else {
+        std::snprintf(text, text_size, "%.2f", hz);
+        std::snprintf(unit, unit_size, "Hz");
+    }
+}
+
+void format_seconds(char *text, size_t text_size, char *unit, size_t unit_size, double ns)
+{
+    if (ns >= 1e9) {
+        std::snprintf(text, text_size, "%.3f", ns / 1e9);
+        std::snprintf(unit, unit_size, "s");
+    } else if (ns >= 1e6) {
+        std::snprintf(text, text_size, "%.3f", ns / 1e6);
+        std::snprintf(unit, unit_size, "ms");
+    } else if (ns >= 1e3) {
+        std::snprintf(text, text_size, "%.2f", ns / 1e3);
+        std::snprintf(unit, unit_size, "us");
+    } else {
+        std::snprintf(text, text_size, "%.0f", ns);
+        std::snprintf(unit, unit_size, "ns");
+    }
+}
 
 }  // namespace
+
+void Multimeter::Lead::reset()
+{
+    trace.clear();
+    analog.clear();
+}
+
+bool Multimeter::Lead::volts_at(int64_t ns, float &v) const
+{
+    if (port < 0) {
+        v = 0.0f;   // the bench ground
+        return true;
+    }
+    if (is_analog) {
+        return analog.value_at(ns, v);
+    }
+    int level = trace.level_at(ns);
+    if (level < 0) {
+        return false;
+    }
+    v = level ? logic_high_v : 0.0f;
+    return true;
+}
+
+std::string Multimeter::channel_name(int channel) const
+{
+    return "TIP " + std::to_string(channel / 2 + 1) + (channel % 2 ? " COM" : "");
+}
 
 Multimeter::Multimeter(App &app) : app_(app)
 {
@@ -64,39 +116,44 @@ void Multimeter::remove_tip(int index)
     if (tips_.size() <= 1 || index < 0 || static_cast<size_t>(index) >= tips_.size()) {
         return;
     }
-    // Wires above the removed tip move down one channel.
-    app_.unwire(this->id(), index);
-    for (int c = index + 1; c < static_cast<int>(tips_.size()); c++) {
+    // Wires above the removed tip move down one tip (two channels).
+    app_.unwire(this->id(), index * 2);
+    app_.unwire(this->id(), index * 2 + 1);
+    for (int c = (index + 1) * 2; c < static_cast<int>(tips_.size()) * 2; c++) {
         int port = app_.wired_port(this->id(), c);
         app_.unwire(this->id(), c);
         if (port >= 0) {
-            app_.rewire(this->id(), c - 1, port);
+            app_.rewire(this->id(), c - 2, port);
         }
     }
     tips_.erase(tips_.begin() + index);
     refresh_wiring();
 }
 
+void Multimeter::refresh_lead(Lead &lead, int channel)
+{
+    int port = app_.wired_port(this->id(), channel);
+    if (port == lead.port) {
+        return;
+    }
+    lead.port = port;
+    lead.reset();
+    const core::PortInfo *info = app_.port_info(port);
+    lead.is_analog = info && info->analog;
+}
+
 void Multimeter::refresh_wiring()
 {
     for (size_t i = 0; i < tips_.size(); i++) {
         Tip &t = *tips_[i];
-        int port = app_.wired_port(this->id(), static_cast<int>(i));
-        if (port != t.port) {
-            t.port = port;
-            t.trace.clear();
-            t.analog.clear();
+        int before_tip = t.tip.port;
+        int before_com = t.com.port;
+        refresh_lead(t.tip, static_cast<int>(i) * 2);
+        refresh_lead(t.com, static_cast<int>(i) * 2 + 1);
+        if (before_tip != t.tip.port || before_com != t.com.port) {
             t.pulses = 0;
             t.min = t.max = t.sum = 0.0;
             t.samples = 0;
-            const core::PortInfo *info = app_.port_info(port);
-            t.is_analog = info && info->analog;
-            if (t.is_analog && t.function != Function::VoltsDC && t.function != Function::VoltsAC) {
-                t.function = Function::VoltsDC;
-            }
-            if (!t.is_analog && (t.function == Function::VoltsDC || t.function == Function::VoltsAC)) {
-                t.function = Function::Frequency;
-            }
         }
     }
 }
@@ -111,12 +168,15 @@ void Multimeter::feed(const std::vector<core::DigitalEvent> &events)
     for (const core::DigitalEvent &e : events) {
         for (auto &tp : tips_) {
             Tip &t = *tp;
-            if (t.port == e.port && !t.is_analog) {
+            for (Lead *lead : {&t.tip, &t.com}) {
+                if (lead->port != e.port || lead->is_analog) {
+                    continue;
+                }
                 if (e.kind == core::DigitalEvent::Snapshot) {
-                    t.trace.snapshot(e.ns, e.level);
+                    lead->trace.snapshot(e.ns, e.level);
                 } else {
-                    t.trace.add(e.ns, e.level);
-                    if (e.level) {
+                    lead->trace.add(e.ns, e.level);
+                    if (e.level && lead == &t.tip) {
                         t.pulses++;
                     }
                 }
@@ -131,44 +191,144 @@ void Multimeter::feed_analog(const std::vector<core::AnalogBlock> &blocks)
     for (const core::AnalogBlock &b : blocks) {
         for (auto &tp : tips_) {
             Tip &t = *tp;
-            if (t.port == b.port && t.is_analog) {
-                t.analog.add(b.t0_ns, b.dt_ns, b.volts.data(), b.volts.size());
+            for (Lead *lead : {&t.tip, &t.com}) {
+                if (lead->port == b.port && lead->is_analog) {
+                    lead->analog.add(b.t0_ns, b.dt_ns, b.volts.data(), b.volts.size());
+                }
             }
         }
         latest_ns_ = std::max(latest_ns_, b.t0_ns + static_cast<int64_t>(b.volts.size()) * b.dt_ns);
     }
 }
 
+Multimeter::VoltStats Multimeter::volt_stats(const Tip &t, int64_t t0, int64_t t1) const
+{
+    VoltStats st;
+    double sum = 0.0;
+    double sum2 = 0.0;
+    double weight = 0.0;
+    auto take = [&](int64_t ns, double w) {
+        float a = 0.0f;
+        float b = 0.0f;
+        if (!t.tip.volts_at(ns, a) || !t.com.volts_at(ns, b)) {
+            return;
+        }
+        double v = static_cast<double>(a) - static_cast<double>(b);
+        if (!st.valid) {
+            st.valid = true;
+            st.vmin = st.vmax = v;
+        }
+        st.vmin = std::min(st.vmin, v);
+        st.vmax = std::max(st.vmax, v);
+        sum += v * w;
+        sum2 += v * v * w;
+        weight += w;
+    };
+    // The grid: the samples of an analog lead when there is one, otherwise
+    // the transitions of both digital leads (piecewise constant).
+    const core::AnalogTrace *grid = t.tip.is_analog ? &t.tip.analog : (t.com.is_analog ? &t.com.analog : nullptr);
+    if (grid) {
+        if (!grid->empty()) {
+            size_t from = grid->index_at(t0);
+            size_t to = grid->index_at(t1);
+            for (size_t i = from; i < to; i++) {
+                take(grid->first_ns() + static_cast<int64_t>(i) * grid->dt_ns(), 1.0);
+            }
+        }
+    } else {
+        std::vector<int64_t> times;
+        times.push_back(t0);
+        for (const Lead *lead : {&t.tip, &t.com}) {
+            if (lead->port < 0) {
+                continue;
+            }
+            const core::DigitalTrace &tr = lead->trace;
+            for (size_t i = tr.lower_bound(t0); i < tr.size() && tr.at(i).ns < t1; i++) {
+                times.push_back(tr.at(i).ns);
+            }
+        }
+        std::sort(times.begin(), times.end());
+        for (size_t i = 0; i < times.size(); i++) {
+            int64_t next = i + 1 < times.size() ? times[i + 1] : t1;
+            if (next > times[i]) {
+                take(times[i], static_cast<double>(next - times[i]));
+            }
+        }
+    }
+    if (weight <= 0.0) {
+        st.valid = false;
+        return st;
+    }
+    st.mean = sum / weight;
+    st.rms = std::sqrt(std::max(0.0, sum2 / weight));
+    return st;
+}
+
+bool Multimeter::timing_trace(const Tip &t, int64_t t0, int64_t t1, core::DigitalTrace &out) const
+{
+    if (!t.tip.is_analog) {
+        return false;
+    }
+    const core::AnalogTrace &a = t.tip.analog;
+    if (a.empty()) {
+        return false;
+    }
+    size_t from = a.index_at(t0);
+    size_t to = a.index_at(t1);
+    float lo = 0.0f;
+    float hi = 0.0f;
+    if (from >= to || !a.min_max(from, to, lo, hi) || hi - lo < 0.05f) {
+        return false;
+    }
+    // Squared at the middle of the swing with a tenth of hysteresis.
+    float mid = (lo + hi) * 0.5f;
+    float band = (hi - lo) * 0.05f;
+    int level = a.at(from) > mid ? 1 : 0;
+    out.clear();
+    out.snapshot(a.first_ns() + static_cast<int64_t>(from) * a.dt_ns(), static_cast<uint8_t>(level));
+    for (size_t i = from; i < to; i++) {
+        float v = a.at(i);
+        int next = level ? (v < mid - band ? 0 : 1) : (v > mid + band ? 1 : 0);
+        if (next != level) {
+            level = next;
+            out.add(a.first_ns() + static_cast<int64_t>(i) * a.dt_ns(), static_cast<uint8_t>(level));
+        }
+    }
+    return true;
+}
+
 Multimeter::Reading Multimeter::measure(const Tip &t) const
 {
     Reading r;
-    if (t.port < 0 || latest_ns_ < 0) {
+    if (t.tip.port < 0 || latest_ns_ < 0) {
         return r;
     }
     int64_t t1 = latest_ns_;
     int64_t t0 = t1 - reading_window_ns;
-    if (t.is_analog) {
-        core::AnalogMeasurements m = core::measure_analog(t.analog, t0, t1);
-        if (!m.valid) {
+    if (t.function == Function::VoltsDC || t.function == Function::VoltsAC || t.function == Function::VoltsPP) {
+        VoltStats st = volt_stats(t, t0, t1);
+        if (!st.valid) {
             return r;
         }
         r.valid = true;
-        if (t.function == Function::VoltsAC) {
-            double ac = std::sqrt(std::max(0.0, static_cast<double>(m.vrms) * m.vrms - static_cast<double>(m.vmean) * m.vmean));
-            r.value = ac;
+        if (t.function == Function::VoltsDC) {
+            r.value = st.mean;
+        } else if (t.function == Function::VoltsAC) {
+            r.value = std::sqrt(std::max(0.0, st.rms * st.rms - st.mean * st.mean));
         } else {
-            r.value = m.vmean;
+            r.value = st.vmax - st.vmin;
         }
-        std::snprintf(r.unit, sizeof(r.unit), "V");
-        if (std::fabs(r.value) < 1.0) {
-            std::snprintf(r.text, sizeof(r.text), "%.1f", r.value * 1000.0);
-            std::snprintf(r.unit, sizeof(r.unit), "mV");
-        } else {
-            std::snprintf(r.text, sizeof(r.text), "%.3f", r.value);
-        }
+        format_volts(r.text, sizeof(r.text), r.unit, sizeof(r.unit), r.value);
         return r;
     }
-    core::Measurements m = core::measure(t.trace, t0, t1);
+    // The timing functions read the tip squared.
+    core::DigitalTrace squared{1u << 14};
+    bool analog = timing_trace(t, t0, t1, squared);
+    if (t.tip.is_analog && !analog) {
+        return r;
+    }
+    const core::DigitalTrace &trace = analog ? squared : t.tip.trace;
+    core::Measurements m = core::measure(trace, t0, t1);
     switch (t.function) {
     case Function::Frequency:
         if (!m.valid) {
@@ -176,16 +336,15 @@ Multimeter::Reading Multimeter::measure(const Tip &t) const
         }
         r.valid = true;
         r.value = m.frequency_hz;
-        if (r.value >= 1e6) {
-            std::snprintf(r.text, sizeof(r.text), "%.4f", r.value / 1e6);
-            std::snprintf(r.unit, sizeof(r.unit), "MHz");
-        } else if (r.value >= 1e3) {
-            std::snprintf(r.text, sizeof(r.text), "%.3f", r.value / 1e3);
-            std::snprintf(r.unit, sizeof(r.unit), "kHz");
-        } else {
-            std::snprintf(r.text, sizeof(r.text), "%.2f", r.value);
-            std::snprintf(r.unit, sizeof(r.unit), "Hz");
+        format_hertz(r.text, sizeof(r.text), r.unit, sizeof(r.unit), r.value);
+        return r;
+    case Function::Period:
+        if (!m.valid) {
+            return r;
         }
+        r.valid = true;
+        r.value = static_cast<double>(m.period_ns);
+        format_seconds(r.text, sizeof(r.text), r.unit, sizeof(r.unit), r.value);
         return r;
     case Function::Duty:
         if (!m.valid) {
@@ -202,25 +361,28 @@ Multimeter::Reading Multimeter::measure(const Tip &t) const
         }
         r.valid = true;
         r.value = static_cast<double>(m.high_ns);
-        if (r.value >= 1e6) {
-            std::snprintf(r.text, sizeof(r.text), "%.3f", r.value / 1e6);
-            std::snprintf(r.unit, sizeof(r.unit), "ms");
-        } else if (r.value >= 1e3) {
-            std::snprintf(r.text, sizeof(r.text), "%.2f", r.value / 1e3);
-            std::snprintf(r.unit, sizeof(r.unit), "us");
-        } else {
-            std::snprintf(r.text, sizeof(r.text), "%.0f", r.value);
-            std::snprintf(r.unit, sizeof(r.unit), "ns");
-        }
+        format_seconds(r.text, sizeof(r.text), r.unit, sizeof(r.unit), r.value);
         return r;
-    case Function::Count:
+    case Function::Count: {
+        // Digital ports count every rising edge since RESET; an analog one
+        // the rising crossings in the window.
+        uint64_t pulses = analog ? static_cast<uint64_t>(std::max(0, m.rising)) : t.pulses;
         r.valid = true;
-        r.value = static_cast<double>(t.pulses);
-        std::snprintf(r.text, sizeof(r.text), "%llu", static_cast<unsigned long long>(t.pulses));
+        r.value = static_cast<double>(pulses);
+        std::snprintf(r.text, sizeof(r.text), "%llu", static_cast<unsigned long long>(pulses));
         std::snprintf(r.unit, sizeof(r.unit), "pulses");
         return r;
+    }
     case Function::Level: {
-        int level = t.trace.level();
+        int level = -1;
+        if (analog) {
+            float v = 0.0f;
+            if (t.tip.analog.value_at(t1, v)) {
+                level = v >= logic_threshold_v ? 1 : 0;
+            }
+        } else {
+            level = trace.level();
+        }
         if (level < 0) {
             return r;
         }
@@ -233,6 +395,7 @@ Multimeter::Reading Multimeter::measure(const Tip &t) const
     }
     case Function::VoltsDC:
     case Function::VoltsAC:
+    case Function::VoltsPP:
         break;
     }
     return r;
@@ -244,7 +407,7 @@ void Multimeter::fit_window(ui::Window &window)
     int height = 0;
     window.size(width, height);
     int rows = (static_cast<int>(tips_.size()) + 1) / 2;
-    int wanted = static_cast<int>(130.0f + 72.0f * static_cast<float>(rows) + 40.0f);
+    int wanted = static_cast<int>(130.0f + (module_row_h + 22.0f) * static_cast<float>(rows) + 30.0f);
     if (height != wanted) {
         window.set_size(width, wanted);
     }
@@ -296,7 +459,6 @@ void Multimeter::draw(ui::Window &window)
     const float gap = 5.0f * s;
     float x = frame.panel_min.x;
     float y = frame.panel_min.y + 4.0f * s;
-    float inner_w = frame.panel_max.x - frame.panel_min.x;
 
     // Top row: ADD, RATE, RESET.
     float kw = 70.0f * s;
@@ -318,8 +480,9 @@ void Multimeter::draw(ui::Window &window)
     ImFont *small = ui::fonts().small;
     y += key_h + 18.0f * s;
 
-    // One mini module per tip, two per row: [x] [function] [jack+port] [display] [HOLD]
-    const float row_h = 50.0f * s;
+    // One mini module per tip, two per row:
+    // [x] [function] [tip jack] [COM jack] [display] [HOLD]
+    const float row_h = module_row_h * s;
     const float module_gap = 8.0f * s;
     const float mw = (frame.panel_max.x - frame.panel_min.x - module_gap) / 2.0f;
     const float rows_top = y;
@@ -328,6 +491,7 @@ void Multimeter::draw(ui::Window &window)
         float mx = x + static_cast<float>(i % 2) * (mw + module_gap);
         int row = i / 2;
         y = rows_top + static_cast<float>(row) * (row_h + 22.0f * s);
+        float cy = y + row_h * 0.5f;
         char title[32];
         std::snprintf(title, sizeof(title), "TIP %d", i + 1);
         ui::group_frame(ImVec2(mx, y - 2.0f * s), ImVec2(mx + mw, y + row_h + 2.0f * s), title, s);
@@ -336,85 +500,90 @@ void Multimeter::draw(ui::Window &window)
         uint32_t colour = ui::channel_colour(i % ui::channel_count);
         // Remove key.
         std::snprintf(id, sizeof(id), "##rm%d", i);
-        if (ui::key(id, "x", ImVec2(rx, y + (row_h - key_h) * 0.5f), ImVec2(20.0f * s, key_h), false, t.led_stop, s,
+        if (ui::key(id, "x", ImVec2(rx, cy - key_h * 0.5f), ImVec2(20.0f * s, key_h), false, t.led_stop, s,
                     tips_.size() > 1)) {
             remove_tip(i);
             break;
         }
         rx += 20.0f * s + gap;
-        // Function key cycles through the functions allowed by the port kind.
+        // The function, from a dropdown.
+        static const ui::DropdownItem items[functions] = {
+            {"V DC", "VOLTAGE"}, {"V AC", "VOLTAGE"}, {"V PP", "VOLTAGE"},  {"FREQ", "TIMING"}, {"PERIOD", "TIMING"},
+            {"DUTY", "TIMING"},  {"WIDTH", "TIMING"}, {"COUNT", "TIMING"}, {"LEVEL", "LOGIC"},
+        };
         std::snprintf(id, sizeof(id), "##fn%d", i);
-        if (ui::key(id, function_label(tip.function), ImVec2(rx, y + (row_h - key_h) * 0.5f), ImVec2(58.0f * s, key_h),
-                    true, colour, s)) {
-            int f = static_cast<int>(tip.function);
-            for (int k = 0; k < functions; k++) {
-                f = (f + 1) % functions;
-                auto fn = static_cast<Function>(f);
-                bool analog_fn = fn == Function::VoltsDC || fn == Function::VoltsAC;
-                if (tip.port < 0 || analog_fn == tip.is_analog) {
-                    break;
-                }
-            }
-            tip.function = static_cast<Function>(f);
+        int chosen = ui::dropdown(id, ImVec2(rx, cy - key_h * 0.5f), ImVec2(78.0f * s, key_h), items, functions,
+                                  static_cast<int>(tip.function), colour, s);
+        if (chosen >= 0) {
+            tip.function = static_cast<Function>(chosen);
             tip.min = tip.max = tip.sum = 0.0;
             tip.samples = 0;
         }
-        rx += 58.0f * s + gap;
-        // Jack and the port name.
-        ImVec2 jack_c(rx + 9.0f * s, y + row_h * 0.5f);
-        ui::JackLook look;
-        look.name = "";
-        look.level = -1;
-        look.active = false;
-        look.input = true;
-        look.output = false;
-        look.wire_colour = tip.port >= 0 ? colour : 0;
-        std::snprintf(id, sizeof(id), "##jack%d", i);
-        if (ui::jack(id, jack_c, 8.0f * s, look, s)) {
-            app_.offer_channel(this->id(), i);
+        rx += 78.0f * s + gap;
+        // The two jacks: the tip and its COM, each with its port name under it.
+        for (int lead = 0; lead < 2; lead++) {
+            int channel = i * 2 + lead;
+            const Lead &l = lead == 0 ? tip.tip : tip.com;
+            ImVec2 jack_c(rx + 9.0f * s, cy - 5.0f * s);
+            ui::JackLook look;
+            look.name = "";
+            look.level = -1;
+            look.active = false;
+            look.input = true;
+            look.output = false;
+            look.wire_colour = l.port >= 0 ? colour : 0;
+            std::snprintf(id, sizeof(id), "##jack%d-%d", i, lead);
+            if (ui::jack(id, jack_c, 8.0f * s, look, s)) {
+                app_.offer_channel(this->id(), channel);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("%s", lead == 0 ? "tip" : "COM: the reference, the bench ground when free");
+            }
+            if (app_.channel_offered(this->id(), channel)) {
+                draw->AddCircle(jack_c, 11.0f * s, t.led_warn, 20, 1.5f * s);
+            }
+            app_.anchor_channel(this->id(), channel, window, jack_c.x, jack_c.y);
+            // The port name under the jack: "--" for a free tip, "GND" for a free COM.
+            std::string port_name =
+                l.port >= 0 ? panel::short_port_name(app_.port_info(l.port)) : (lead == 0 ? "--" : "GND");
+            float nw = small->CalcTextSizeA(small->FontSize, 1e9f, 0.0f, port_name.c_str()).x;
+            draw->AddText(small, small->FontSize, ImVec2(jack_c.x - nw * 0.5f, jack_c.y + 11.0f * s),
+                          l.port >= 0 ? colour : t.label_dim, port_name.c_str());
+            if (lead == 1) {
+                const char *tag = "COM";
+                float tw = small->CalcTextSizeA(small->FontSize, 1e9f, 0.0f, tag).x;
+                draw->AddText(small, small->FontSize, ImVec2(jack_c.x - tw * 0.5f, jack_c.y - 11.0f * s - small->FontSize),
+                              t.label_dim, tag);
+            }
+            rx += 36.0f * s;
         }
-        if (app_.channel_offered(this->id(), i)) {
-            draw->AddCircle(jack_c, 11.0f * s, t.led_warn, 20, 1.5f * s);
-        }
-        app_.anchor_channel(this->id(), i, window, jack_c.x, jack_c.y);
-        std::string port_name = panel::short_port_name(app_.port_info(tip.port));
-        draw->AddText(small, small->FontSize, ImVec2(rx + 21.0f * s, y + row_h * 0.5f - small->FontSize * 0.5f),
-                      tip.port >= 0 ? colour : t.label_dim, port_name.c_str());
-        rx += 60.0f * s;
-        // The display: a dark window with the seven-segment value and the unit.
-        float disp_w = 178.0f * s;
+        rx += gap;
+        // The display: a dark window, the statistics on its top line, the
+        // seven-segment value with the unit under them.
+        float hold_w = 46.0f * s;
+        float disp_w = mx + mw - 10.0f * s - hold_w - gap - rx;
         ImVec2 dmin(rx, y + 2.0f * s);
         ImVec2 dmax(rx + disp_w, y + row_h - 2.0f * s);
-        draw->AddRectFilled(dmin, dmax, t.screen, 4.0f * s);
-        draw->AddRect(dmin, dmax, t.chassis_shadow, 4.0f * s, 0, 1.0f * s);
         const char *text = tip.shown.valid ? tip.shown.text : "----";
-        float tw = panel::seven_width(text);
-        float uw = panel::mono_width(tip.shown.valid ? tip.shown.unit : "");
-        float tx = dmax.x - 8.0f * s - uw - 6.0f * s - tw;
-        panel::seven_text(draw, ImVec2(tx, dmin.y + (dmax.y - dmin.y - panel::seven_height()) * 0.5f),
-                          tip.shown.valid ? colour : t.readout_dim, text);
-        if (tip.shown.valid) {
-            panel::mono_text(draw, ImVec2(dmax.x - 8.0f * s - uw, dmax.y - 8.0f * s - ui::fonts().mono->FontSize), t.readout,
-                             tip.shown.unit);
-        }
+        float inset = small->FontSize + 4.0f * s;
+        panel::seven_display(draw, dmin, dmax, tip.shown.valid ? colour : t.readout_dim, text, t.readout,
+                             tip.shown.valid ? tip.shown.unit : "", s, inset);
         if (tip.hold) {
-            panel::mono_text(draw, ImVec2(dmin.x + 6.0f * s, dmin.y + 4.0f * s), t.led_warn, "HOLD");
-        }
-        rx += disp_w + gap;
-        // HOLD key and the statistics.
-        std::snprintf(id, sizeof(id), "##hold%d", i);
-        if (ui::key(id, "HOLD", ImVec2(rx, y + (row_h - key_h) * 0.5f), ImVec2(48.0f * s, key_h), tip.hold, t.led_warn, s)) {
-            tip.hold = !tip.hold;
+            float hw = small->CalcTextSizeA(small->FontSize, 1e9f, 0.0f, "HOLD").x;
+            draw->AddText(small, small->FontSize, ImVec2(dmax.x - 8.0f * s - hw, dmin.y + 3.0f * s), t.led_warn, "HOLD");
         }
         if (tip.samples > 0 && tip.function != Function::Level) {
-            // Statistics in the corner of the display.
             char stats[96];
             std::snprintf(stats, sizeof(stats), "min %.3g  max %.3g  avg %.3g", tip.min, tip.max,
                           tip.sum / static_cast<double>(tip.samples));
             draw->AddText(small, small->FontSize, ImVec2(dmin.x + 6.0f * s, dmin.y + 3.0f * s), t.readout_dim, stats);
         }
+        rx += disp_w + gap;
+        std::snprintf(id, sizeof(id), "##hold%d", i);
+        if (ui::key(id, "HOLD", ImVec2(rx, cy - key_h * 0.5f), ImVec2(hold_w, key_h), tip.hold, t.led_warn, s)) {
+            tip.hold = !tip.hold;
+        }
     }
-    (void)inner_w;
     app_.grab_near(window);
     ui::end_chassis();
 }
@@ -438,7 +607,7 @@ void Multimeter::load(const nlohmann::json &in)
                 break;
             }
             auto tip = std::make_unique<Tip>();
-            tip->function = static_cast<Function>(std::clamp(j.value("function", 2), 0, functions - 1));
+            tip->function = static_cast<Function>(std::clamp(j.value("function", 0), 0, functions - 1));
             tip->hold = j.value("hold", false);
             tips_.push_back(std::move(tip));
         }

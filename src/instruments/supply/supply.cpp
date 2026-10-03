@@ -16,13 +16,22 @@ namespace app {
 
 namespace {
 
-constexpr float row_h = 58.0f;
+constexpr float row_h = 68.0f;
 
 }  // namespace
 
 Supply::Supply(App &app) : app_(app)
 {
     outputs_.push_back(std::make_unique<Output>());   // no wires yet: nothing to sync
+    for (const auto &[n, volts] : app_.supply_outputs_on()) {
+        while (static_cast<int>(outputs_.size()) < n && static_cast<int>(outputs_.size()) < max_outputs) {
+            outputs_.push_back(std::make_unique<Output>());
+        }
+        if (n >= 1 && n <= static_cast<int>(outputs_.size())) {
+            outputs_[static_cast<size_t>(n - 1)]->on = true;
+            outputs_[static_cast<size_t>(n - 1)]->volts = volts;
+        }
+    }
     last_apply_ = std::chrono::steady_clock::now();
 }
 
@@ -111,7 +120,6 @@ void Supply::draw(ui::Window &window)
         app_.cancel_wiring();
     }
     bool can_drive = app_.probe().capabilities().drive;
-    bool analog_target = app_.probe().capabilities().analog && false;   // real volts come with the ADALM2000
 
     const float key_h = 21.0f * s;
     const float gap = 5.0f * s;
@@ -156,8 +164,11 @@ void Supply::draw(ui::Window &window)
         look.active = false;
         look.input = false;
         look.output = true;
+        // Published as a DC level in volts; digital consumers get its logic level.
         core::WaveSpec published;
-        published.kind = o.volts >= logic_threshold ? core::Waveform::High : core::Waveform::Low;
+        published.kind = core::Waveform::Dc;
+        published.amplitude_v = o.volts;
+        published.offset_v = 0.0f;
         int vport = app_.publish_output(this->id(), i, published, o.on);
         look.wire_colour = o.port >= 0 ? colour : app_.port_wire_colour(vport);
         std::snprintf(id, sizeof(id), "##jack%d", i);
@@ -193,31 +204,30 @@ void Supply::draw(ui::Window &window)
         }
         rx += kr * 2.0f + gap * 2.0f;
         // Displays: volts and amperes, seven-segment.
-        auto display = [&](const char *value, const char *unit, uint32_t colour_v, float width) {
-            ImVec2 dmin(rx, cy - 20.0f * s);
-            ImVec2 dmax(rx + width, cy + 20.0f * s);
-            draw->AddRectFilled(dmin, dmax, t.screen, 4.0f * s);
-            draw->AddRect(dmin, dmax, t.chassis_shadow, 4.0f * s, 0, 1.0f * s);
-            float uw = panel::mono_width(unit);
-            float tw = panel::seven_width(value);
-            panel::seven_text(draw, ImVec2(dmax.x - 8.0f * s - uw - 6.0f * s - tw, cy - panel::seven_height() * 0.5f), colour_v,
-                              value);
-            panel::mono_text(draw, ImVec2(dmax.x - 8.0f * s - uw, dmax.y - 6.0f * s - ui::fonts().mono->FontSize), t.readout, unit);
+        auto display = [&](const char *value, const char *unit, const char *label, uint32_t colour_v, float width) {
+            panel::seven_display(draw, ImVec2(rx, cy - 20.0f * s), ImVec2(rx + width, cy + 20.0f * s), colour_v, value, t.readout,
+                                 unit, s);
+            float lw = small->CalcTextSizeA(small->FontSize, 1e9f, 0.0f, label).x;
+            draw->AddText(small, small->FontSize, ImVec2(rx + (width - lw) * 0.5f, cy + 22.0f * s), t.label_dim, label);
             rx += width + gap;
         };
         char volts[16];
-        // What the target sees: on a logic target the level the set voltage means.
-        float shown = !o.on ? 0.0f : (analog_target ? o.volts : (o.volts >= logic_threshold ? 3.3f : 0.0f));
+        // The set voltage while the output is on (a logic target gets the level it means).
+        float shown = o.on ? o.volts : 0.0f;
         std::snprintf(volts, sizeof(volts), "%.2f", static_cast<double>(shown));
-        display(volts, "V", o.on ? colour : t.readout_dim, 94.0f * s);
-        display("0.000", "A", o.on ? colour : t.readout_dim, 94.0f * s);
+        display(volts, "V", "VOLTAGE", o.on ? colour : t.readout_dim, 94.0f * s);
+        display("0.000", "A", "CURRENT", o.on ? colour : t.readout_dim, 94.0f * s);
         // The set voltage, small, under the SET knob.
         char set_text[24];
         std::snprintf(set_text, sizeof(set_text), "%.1f V", static_cast<double>(o.volts));
-        draw->AddText(small, small->FontSize, ImVec2(mx + 10.0f * s + 20.0f * s + gap + 66.0f * s - 4.0f * s, cy + kr + 12.0f * s),
-                      t.label_dim, set_text);
+        {
+            float knob_cx = mx + 10.0f * s + 20.0f * s + gap + 66.0f * s + kr;
+            float stw = small->CalcTextSizeA(small->FontSize, 1e9f, 0.0f, set_text).x;
+            draw->AddText(small, small->FontSize, ImVec2(knob_cx - stw * 0.5f, cy - kr - 4.0f * s - small->FontSize), t.label_dim,
+                          set_text);
+        }
         std::snprintf(id, sizeof(id), "##out%d", i);
-        if (ui::key(id, o.on ? "ON" : "OUTPUT", ImVec2(rx, cy - key_h * 0.5f), ImVec2(74.0f * s, key_h), o.on, t.led_run, s,
+        if (ui::key(id, o.on ? "ON" : "OFF", ImVec2(rx, cy - key_h * 0.5f), ImVec2(74.0f * s, key_h), o.on, t.led_run, s,
                     (o.port >= 0 && drivable && can_drive) || app_.port_wire_colour(vport) != 0)) {
             o.on = !o.on;
             o.dirty = true;

@@ -1057,15 +1057,10 @@ void Scope::draw_controls(ui::Window &window, ImVec2 min, ImVec2 max)
             std::snprintf(label, sizeof(label), "CH%d", c + 1);
         }
         bool lit = ch.port >= 0 || app_.channel_offered(this->id(), c);
+        // The key only selects the channel for the knobs; wires are made,
+        // grabbed and plugged at the jack beside it.
         if (ui::key(id, label, ImVec2(cx, y), ImVec2(kw, key_h), lit, ui::channel_colour(c), s)) {
-            if (ch.port >= 0 && selected_ == c && app_.selected_port() < 0) {
-                app_.unwire(this->id(), c);
-            } else if (ch.port >= 0 && app_.selected_port() < 0) {
-                selected_ = c;
-            } else {
-                app_.offer_channel(this->id(), c);
-                selected_ = c;
-            }
+            selected_ = c;
         }
         if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
             selected_ = c;   // right click: the channel the H and V knobs control

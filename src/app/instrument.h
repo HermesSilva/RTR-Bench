@@ -39,6 +39,10 @@ public:
     virtual ~InstrumentBase() = default;
     virtual Instrument kind() const = 0;
     virtual int channel_count() const = 0;
+    // Which of the channel colours a channel takes (several channels may
+    // share one: a multimeter tip and its COM) and how the channel is named.
+    virtual int channel_colour_index(int channel) const { return channel; }
+    virtual std::string channel_name(int channel) const { return "CH" + std::to_string(channel + 1); }
     virtual void draw(ui::Window &window) = 0;
     // Events of this frame, all ports; the instrument keeps those it is wired to.
     virtual void feed(const std::vector<core::DigitalEvent> &events) = 0;

@@ -6,6 +6,7 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "app/instrument.h"
@@ -76,6 +77,9 @@ public:
         theme_from_command_line_ = true;
     }
     const std::vector<int> &generator_outputs_on() const { return generator_on_; }
+    // "--psu 1=3.8": output 1 of the supply starts on at 3.8 V.
+    void supply_on_at_start(int output, float volts) { supply_on_.push_back({output, volts}); }
+    const std::vector<std::pair<int, float>> &supply_outputs_on() const { return supply_on_; }
 
     // For the rack and the instruments.
     core::Probe &probe() { return *probe_; }
@@ -96,6 +100,9 @@ public:
     int wired_port(InstrumentId instrument, int channel) const;   // -1 when none
     bool port_wired_to(int port, InstrumentId &instrument, int &channel) const;
     uint32_t port_wire_colour(int port) const;                    // 0 when none
+    // The colour of the wire of a channel of an instrument.
+    uint32_t wire_colour(InstrumentId instrument, int channel) const;
+    const InstrumentBase *instrument(InstrumentId id) const;      // null when not open
     void select_port(int port);                                   // from the rack
     int selected_port() const { return selected_port_; }
     void offer_channel(InstrumentId instrument, int channel);     // from an instrument
@@ -175,6 +182,9 @@ private:
     std::vector<VirtualPort> virtual_ports_;
     int64_t virtual_clock_ns_ = 0;   // where the virtual generation got to
     std::chrono::steady_clock::time_point virtual_start_;
+    int64_t probe_latest_ns_ = 0;        // the probe's latest timestamp
+    int64_t probe_latest_wall_ns_ = 0;   // wall time (since virtual_start_) when it arrived
+    bool probe_offset_known_ = false;
     void pump_virtual_ports();
     VirtualPort *virtual_port(int port);
     struct PendingVirtualWire {
@@ -265,6 +275,7 @@ private:
     std::vector<Placement> placements_;
     std::vector<MathPreset> math_presets_;
     std::vector<int> generator_on_;
+    std::vector<std::pair<int, float>> supply_on_;
     ui::ThemeKind theme_ = ui::ThemeKind::Dark;
     bool theme_from_command_line_ = false;
 

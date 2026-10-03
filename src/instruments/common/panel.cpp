@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "instruments/common/panel.h"
 
+#include <algorithm>
 #include <cfloat>
 
 #include "ui/fonts.h"
@@ -60,32 +61,36 @@ void digital_lane(ImDrawList *draw, const core::DigitalTrace &trace, int64_t t0,
         draw->AddLine(ImVec2(x0, (top + bottom) * 0.5f), ImVec2(x1, (top + bottom) * 0.5f), with_alpha(colour, 70), 1.0f);
         return;
     }
+    // Edges that land in the same pixel as the previous edge make a band
+    // from the first of them to the last; the band ends where the edges
+    // spread out again.
     float dense_from = -1.0f;
+    bool have_edge = false;
     for (; i < end; i++) {
         const core::Transition &tr = trace.at(i);
         float xe = x0 + static_cast<float>(static_cast<double>(tr.ns - t0) / static_cast<double>(span)) * w;
-        if (xe - x < 1.0f && dense_from < 0.0f) {
-            dense_from = x;
-        }
-        if (dense_from >= 0.0f) {
-            if (xe - dense_from >= 1.0f) {
-                draw->AddRectFilled(ImVec2(dense_from, top), ImVec2(xe, bottom), with_alpha(colour, 170));
-                dense_from = -1.0f;
-                x = xe;
+        if (have_edge && xe - x < 1.0f) {
+            if (dense_from < 0.0f) {
+                dense_from = x;
             }
+            x = xe;
             level = tr.level;
             continue;
+        }
+        if (dense_from >= 0.0f) {
+            draw->AddRectFilled(ImVec2(dense_from, top), ImVec2(std::max(x, dense_from + 1.0f), bottom), with_alpha(colour, 170));
+            dense_from = -1.0f;
         }
         draw->AddLine(ImVec2(x, level_y(level)), ImVec2(xe, level_y(level)), colour, thickness);
         draw->AddLine(ImVec2(xe, top), ImVec2(xe, bottom), colour, thickness);
         x = xe;
         level = tr.level;
+        have_edge = true;
     }
     if (dense_from >= 0.0f) {
-        draw->AddRectFilled(ImVec2(dense_from, top), ImVec2(x1, bottom), with_alpha(colour, 170));
-    } else {
-        draw->AddLine(ImVec2(x, level_y(level)), ImVec2(x1, level_y(level)), colour, thickness);
+        draw->AddRectFilled(ImVec2(dense_from, top), ImVec2(std::max(x, dense_from + 1.0f), bottom), with_alpha(colour, 170));
     }
+    draw->AddLine(ImVec2(x, level_y(level)), ImVec2(x1, level_y(level)), colour, thickness);
 }
 
 void mono_text(ImDrawList *draw, ImVec2 pos, uint32_t colour, const char *text)
@@ -117,6 +122,30 @@ float seven_height()
     return ui::fonts().seven->FontSize;
 }
 
+void seven_display(ImDrawList *draw, ImVec2 min, ImVec2 max, uint32_t value_colour, const char *value, uint32_t unit_colour,
+                   const char *unit, float s, float top_inset)
+{
+    const ui::Theme &t = ui::current_theme();
+    ImFont *seven = ui::fonts().seven;
+    ImFont *mono = ui::fonts().mono;
+    draw->AddRectFilled(min, max, t.screen, 4.0f * s);
+    draw->AddRect(min, max, t.chassis_shadow, 4.0f * s, 0, 1.0f * s);
+    float uw = unit[0] != 0 ? mono_width(unit) + 6.0f * s : 0.0f;
+    float avail = (max.x - min.x) - 16.0f * s - uw;
+    float size = std::min(seven->FontSize, (max.y - min.y - top_inset) - 10.0f * s);
+    float tw = seven->CalcTextSizeA(size, FLT_MAX, 0.0f, value).x;
+    if (tw > avail && tw > 0.0f) {
+        size *= avail / tw;
+        tw = avail;
+    }
+    float cy = (min.y + top_inset + max.y) * 0.5f;
+    draw->AddText(seven, size, ImVec2(max.x - 8.0f * s - uw - tw, cy - size * 0.5f), value_colour, value);
+    if (unit[0] != 0) {
+        draw->AddText(mono, mono->FontSize, ImVec2(max.x - 8.0f * s - mono_width(unit), max.y - 6.0f * s - mono->FontSize),
+                      unit_colour, unit);
+    }
+}
+
 std::string short_port_name(const core::PortInfo *info)
 {
     if (!info) {
@@ -124,6 +153,18 @@ std::string short_port_name(const core::PortInfo *info)
     }
     if (info->name.rfind("GPIO ", 0) == 0) {
         return "G" + std::to_string(info->index);
+    }
+    // An instrument output, "GEN #2 OUT1": the instrument and the output, "GEN2:1".
+    size_t out = info->name.rfind(" OUT");
+    if (out != std::string::npos) {
+        std::string head = info->name.substr(0, out);
+        std::string instance;
+        size_t hash = head.find(" #");
+        if (hash != std::string::npos) {
+            instance = head.substr(hash + 2);
+            head = head.substr(0, hash);
+        }
+        return head + instance + ":" + info->name.substr(out + 4);
     }
     return info->name;
 }

@@ -16,6 +16,8 @@ const char *usage =
     "  --probe NAME             probe to start with: emulator (default) or demo\n"
     "  --open NAME              open an instrument at start (scope, logic, gen, psu, dmm)\n"
     "  --gen N=on               output N of the generator starts switched on\n"
+    "  --psu N=VOLTS            output N of the supply starts switched on at VOLTS\n"
+    "  --link OUT:CH=IN:CH      wire an output of an instrument into an input of another (gen:1=scope:1)\n"
     "  --place NAME=X,Y         where a window opens (rack, scope, logic, gen, psu, dmm)\n"
     "  --wire NAME:CH=PORT      wire channel CH of an instrument to a port (--wire scope:1=18)\n"
     "  --math N=FORMULA         enable math channel N (1 or 2) of the scope with a formula name\n"
@@ -164,6 +166,17 @@ int run(int argc, char **argv)
                 return 2;
             }
             app.generator_on_at_start(static_cast<int>(n));
+        } else if (arg == "--psu") {
+            // "--psu 1=3.8": output 1 of the supply starts on, at 3.8 V.
+            size_t eq = value.find('=');
+            long n = eq == std::string::npos ? 0 : std::strtol(value.c_str(), nullptr, 10);
+            char *vend = nullptr;
+            double volts = eq == std::string::npos ? -1.0 : std::strtod(value.c_str() + eq + 1, &vend);
+            if (n < 1 || n > 6 || volts < 0.0 || volts > 5.0 || vend == value.c_str() + eq + 1) {
+                std::printf("rtr-bench: bad --psu '%s' (use N=VOLTS)\n", value.c_str());
+                return 2;
+            }
+            app.supply_on_at_start(static_cast<int>(n), static_cast<float>(volts));
         } else if (arg == "--math") {
             size_t eq = value.find('=');
             if (eq == std::string::npos || (value[0] != '1' && value[0] != '2')) {
