@@ -1,0 +1,6 @@
+# Line endings: LF in the repository and in the working copy on every
+# platform, so that scripts run unchanged in WSL and on Linux.
+* text=auto eol=lf
+*.png binary
+*.ttf binary
+*.otf binary

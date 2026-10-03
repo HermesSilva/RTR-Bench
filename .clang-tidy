@@ -1,0 +1,23 @@
+# RTR-Bench - static checks on our sources (third-party code is exempt).
+#
+# Disabled, with reason:
+#   bugprone-easily-swappable-parameters   flags any function with two adjacent numbers (x, y)
+#   bugprone-signed-bitwise                every Dear ImGui flag is a signed enum
+#   cert-err33-c                           return values of printf/fprintf
+#   cert-err58-cpp                         static objects with constructors are fine in an application
+Checks: >
+  -*,
+  clang-analyzer-*,
+  bugprone-*,
+  cert-*,
+  performance-*,
+  misc-unused-parameters,
+  misc-unused-using-decls,
+  modernize-use-nullptr,
+  modernize-use-override,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-signed-bitwise,
+  -cert-err33-c,
+  -cert-err58-cpp
+# Our headers only: the fetched dependencies live under build/_deps.
+HeaderFilterRegex: '/RTR-Bench/(src|tests)/'
