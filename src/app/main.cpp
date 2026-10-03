@@ -16,7 +16,8 @@ const char *usage =
     "  --open NAME              open an instrument at start (scope)\n"
     "  --wire NAME:CH=PORT      wire channel CH of an instrument to a port (--wire scope:1=18)\n"
     "  --math N=FORMULA         enable math channel N (1 or 2) of the scope with a formula name\n"
-    "  --screenshot NAME=FILE   write a PNG of a window (rack, scope) with alpha, then quit\n"
+    "  --screenshot NAME=FILE   write a PNG with alpha of a window (rack, scope) or of the whole\n"
+    "                           bench (every window and cable at its place), then quit\n"
     "  --delay SECONDS          wait before the screenshots (default 5)\n"
     "  --version\n";
 
@@ -102,7 +103,14 @@ int run(int argc, char **argv)
             for (char &c : window) {
                 c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
             }
-            app.screenshot(window == "RACK" ? "rack" : window, value.substr(eq + 1));
+            // "rack" and "bench" are the application's own names; the rest are
+            // instrument names (SCOPE, ...).
+            if (window == "RACK") {
+                window = "rack";
+            } else if (window == "BENCH") {
+                window = "bench";
+            }
+            app.screenshot(window, value.substr(eq + 1));
         } else if (arg == "--delay") {
             char *end = nullptr;
             double delay = std::strtod(value.c_str(), &end);

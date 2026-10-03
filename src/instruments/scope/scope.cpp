@@ -442,7 +442,7 @@ void Scope::draw_screen(ui::Window &window, ImVec2 min, ImVec2 max)
         const Channel &ch = ch_[static_cast<size_t>(c)];
         uint32_t colour = wired_or_enabled(ch) ? ui::channel_colour(c) : t.readout_dim;
         const core::PortInfo *info = app_.port_info(ch.port);
-        char tag[8];
+        char tag[16];
         if (ch.math) {
             std::snprintf(tag, sizeof(tag), "M%d", c - channels + 1);
         } else {
@@ -493,7 +493,7 @@ void Scope::draw_screen(ui::Window &window, ImVec2 min, ImVec2 max)
         x += mono_width(text) + 16.0f * s;
     }
     const Channel &sel = ch_[static_cast<size_t>(selected_)];
-    char sel_tag[8];
+    char sel_tag[16];
     if (sel.math) {
         std::snprintf(sel_tag, sizeof(sel_tag), "M%d", selected_ - channels + 1);
     } else {

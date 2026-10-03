@@ -148,7 +148,20 @@ private:
     std::vector<Overlay> overlays_;
     bool overlays_enabled_ = false;
     bool wires_shown_ = true;
+    bool force_wires_ = false;   // screenshot mode: cables regardless of focus
     bool bench_focused() const;
+    // The composite screenshot: every window and cable at its place on the desktop.
+    struct Layer {
+        std::vector<uint8_t> rgba;
+        int x = 0;
+        int y = 0;
+        int width = 0;
+        int height = 0;
+    };
+    std::vector<Layer> bench_layers_;
+    void request_bench_capture();
+    bool collect_bench_capture();
+    void write_bench_capture(const std::string &path);
     void begin_anchors();
     void update_overlays();
     Overlay &overlay_slot(size_t index);

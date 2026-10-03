@@ -27,8 +27,10 @@ if (-not [System.IO.Path]::IsPathRooted($Out)) {
 $dir = Split-Path -Parent $Out
 if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
 
+#   -Window bench composes every window and cable at its place on the desktop.
 $argv = @('--screenshot', "`"$Window=$Out`"", '--delay', "$Delay")
-if ($Window -ne 'rack') { $argv += @('--open', $Window) }
+if ($Window -ne 'rack' -and $Window -ne 'bench') { $argv += @('--open', $Window) }
+if ($Window -eq 'bench') { $argv += @('--open', 'scope') }
 foreach ($w in ($Wire -split ',' | Where-Object { $_ })) { $argv += @('--wire', $w) }
 
 # A GUI executable returns at once: wait for it explicitly.

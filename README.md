@@ -42,13 +42,15 @@ The full plan, with the reason behind each choice, is in [`docs/PLANO.md`](docs/
 
 ## Current state
 
-Stage 2 of the plan: the rack and the mixed-signal oscilloscope, on the emulator or on the demo probe.
+Stages 0 to 3 of the plan: the rack, the mixed-signal oscilloscope and the wires across the desktop, on the emulator or on the demo probe.
 
-![The oscilloscope on the demo probe: a sine and a triangle on the analog channels, two digital channels below, M1 = CH1 XOR CH2 and M2 = CH3 x CH4](docs/screenshots/scope-demo-dark.png)
+![The bench on the demo probe: the rack wired to the oscilloscope, a sine and a triangle on the analog channels, two digital channels below, M1 = CH1 XOR CH2 and M2 = CH3 x CH4](docs/screenshots/bench-demo-dark.png)
 
 ![The rack, dark theme, connected to the emulated RTR-OS running a 16-bit counter on GPIO 4 to 19](docs/screenshots/rack-dark.png)
 
-![The oscilloscope on the emulator showing four bits of the counter](docs/screenshots/scope-dark.png)
+![The oscilloscope on the emulator showing four bits of the counter and M1 = CH1 XOR CH2](docs/screenshots/scope-dark.png)
+
+`rtr-bench --screenshot bench=FILE.png` composes every window and cable at its place on the desktop into one image; `rack=` and `scope=` save one window.
 
 - One process, one window per instrument: undecorated, transparent framebuffer, the chassis drawn with handles, bevel, header and window controls; drag by the panel. Fonts embedded in the executable (Inter, JetBrains Mono, DSEG7).
 - `Probe` interface and the **emulator probe**: a thread connects to the `rtr-scope` device (TCP, reconnects by itself), parses the stream (today's format and the planned version 2) and hands the events to the interface through a lock-free queue.

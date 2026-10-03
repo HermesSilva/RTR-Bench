@@ -7,6 +7,7 @@
 #include <imgui.h>
 
 #include "instruments/scope/scope.h"
+#include "ui/png.h"
 #include "ui/theme.h"
 #include "ui/wire.h"
 
@@ -377,7 +378,7 @@ void App::update_overlays()
     }
     // Cables only while the bench is in use: the WIRES key on the rack and
     // the focus on one of its windows (the overlays never take the focus).
-    if (!wires_shown_ || !bench_focused()) {
+    if (!wires_shown_ || (!bench_focused() && !force_wires_)) {
         for (Overlay &o : overlays_) {
             o.window->show(false);
         }
@@ -435,6 +436,98 @@ void App::update_overlays()
         if (o.used) {
             o.window->frame();
         }
+    }
+}
+
+// ---- composite screenshot -----------------------------------------------
+
+void App::request_bench_capture()
+{
+    rack_window_->capture_memory();
+    for (OpenInstrument &i : instruments_) {
+        i.window->capture_memory();
+    }
+    for (Overlay &o : overlays_) {
+        if (o.used) {
+            o.window->capture_memory();
+        }
+    }
+}
+
+// Gathers the captured windows, in drawing order: rack, instruments, cables.
+bool App::collect_bench_capture()
+{
+    bench_layers_.clear();
+    auto take = [&](ui::Window &w) {
+        Layer layer;
+        if (!w.take_capture(layer.rgba, layer.width, layer.height)) {
+            return false;
+        }
+        w.position(layer.x, layer.y);
+        bench_layers_.push_back(std::move(layer));
+        return true;
+    };
+    if (!take(*rack_window_)) {
+        return false;
+    }
+    for (OpenInstrument &i : instruments_) {
+        if (!take(*i.window)) {
+            return false;
+        }
+    }
+    for (Overlay &o : overlays_) {
+        if (o.used && !take(*o.window)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void App::write_bench_capture(const std::string &path)
+{
+    if (bench_layers_.empty()) {
+        return;
+    }
+    int left = bench_layers_[0].x;
+    int top = bench_layers_[0].y;
+    int right = left + bench_layers_[0].width;
+    int bottom = top + bench_layers_[0].height;
+    for (const Layer &l : bench_layers_) {
+        left = std::min(left, l.x);
+        top = std::min(top, l.y);
+        right = std::max(right, l.x + l.width);
+        bottom = std::max(bottom, l.y + l.height);
+    }
+    int width = right - left;
+    int height = bottom - top;
+    std::vector<uint8_t> canvas(static_cast<size_t>(width) * static_cast<size_t>(height) * 4, 0);
+    // Straight-alpha "over" of every layer onto a transparent canvas.
+    const size_t canvas_w = static_cast<size_t>(width);
+    for (const Layer &l : bench_layers_) {
+        const size_t layer_w = static_cast<size_t>(l.width);
+        for (int y = 0; y < l.height; y++) {
+            for (int x = 0; x < l.width; x++) {
+                const uint8_t *src = &l.rgba[(static_cast<size_t>(y) * layer_w + static_cast<size_t>(x)) * 4];
+                int ix = l.x - left + x;
+                int iy = l.y - top + y;
+                size_t cx = static_cast<size_t>(ix);
+                size_t cy = static_cast<size_t>(iy);
+                uint8_t *dst = &canvas[(cy * canvas_w + cx) * 4];
+                float sa = static_cast<float>(src[3]) / 255.0f;
+                float da = static_cast<float>(dst[3]) / 255.0f;
+                float oa = sa + da * (1.0f - sa);
+                for (int c = 0; c < 3; c++) {
+                    float sv = static_cast<float>(src[c]);
+                    float dv = static_cast<float>(dst[c]);
+                    float v = oa > 0.0f ? (sv * sa + dv * da * (1.0f - sa)) / oa : 0.0f;
+                    dst[c] = static_cast<uint8_t>(std::clamp(v, 0.0f, 255.0f));
+                }
+                dst[3] = static_cast<uint8_t>(std::clamp(oa * 255.0f, 0.0f, 255.0f));
+            }
+        }
+    }
+    if (!ui::write_png(path, width, height, canvas.data())) {
+        std::fprintf(stderr, "rtr-bench: cannot write %s\n", path.c_str());
     }
 }
 
@@ -509,7 +602,14 @@ int App::run()
         pump_probe();
         begin_anchors();
         if (!screenshots_.empty()) {
+            force_wires_ = true;
             double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+            const ScreenshotTarget *bench = nullptr;
+            for (const ScreenshotTarget &target : screenshots_) {
+                if (target.window == "bench") {
+                    bench = &target;
+                }
+            }
             if (!capture_asked && elapsed >= screenshot_delay_) {
                 for (const ScreenshotTarget &target : screenshots_) {
                     if (target.window == "rack") {
@@ -520,6 +620,9 @@ int App::run()
                             i.window->capture(target.path);
                         }
                     }
+                }
+                if (bench) {
+                    request_bench_capture();
                 }
                 capture_asked = true;
             } else if (capture_asked) {
@@ -532,6 +635,13 @@ int App::run()
                         if (target.window == instrument_name(i.instrument->kind()) && !i.window->captured()) {
                             all = false;
                         }
+                    }
+                }
+                if (bench && bench_layers_.empty()) {
+                    if (collect_bench_capture()) {
+                        write_bench_capture(bench->path);
+                    } else {
+                        all = false;
                     }
                 }
                 if (all) {

@@ -267,7 +267,7 @@ bool Window::frame()
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT);
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-    if (!capture_path_.empty()) {
+    if (!capture_path_.empty() || capture_memory_) {
         // Read the back buffer before the swap: straight RGBA, bottom row first.
         std::vector<uint8_t> pixels(static_cast<size_t>(width) * static_cast<size_t>(height) * 4);
         glPixelStorei(GL_PACK_ALIGNMENT, 1);
@@ -279,8 +279,14 @@ bool Window::frame()
                       pixels.begin() + static_cast<std::ptrdiff_t>(static_cast<size_t>(height - y) * row),
                       flipped.begin() + static_cast<std::ptrdiff_t>(static_cast<size_t>(y) * row));
         }
-        if (!write_png(capture_path_, width, height, flipped.data())) {
+        if (!capture_path_.empty() && !write_png(capture_path_, width, height, flipped.data())) {
             std::fprintf(stderr, "rtr-bench: cannot write %s\n", capture_path_.c_str());
+        }
+        if (capture_memory_) {
+            captured_pixels_ = std::move(flipped);
+            captured_w_ = width;
+            captured_h_ = height;
+            capture_memory_ = false;
         }
         capture_path_.clear();
         captured_ = true;
@@ -358,6 +364,18 @@ void Window::raise()
 {
     glfwRestoreWindow(window_);
     glfwFocusWindow(window_);
+}
+
+bool Window::take_capture(std::vector<uint8_t> &rgba, int &width, int &height)
+{
+    if (captured_pixels_.empty()) {
+        return false;
+    }
+    rgba = std::move(captured_pixels_);
+    captured_pixels_.clear();
+    width = captured_w_;
+    height = captured_h_;
+    return true;
 }
 
 bool Window::focused() const

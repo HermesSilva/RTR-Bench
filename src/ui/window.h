@@ -4,9 +4,11 @@
 // Each window owns a GLFW window, an OpenGL context and a Dear ImGui context.
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "ui/fonts.h"
 
@@ -63,6 +65,10 @@ public:
     // margins stay transparent). Returns through `done` when written.
     void capture(const std::string &path) { capture_path_ = path; }
     bool captured() const { return captured_; }
+    // Same, but the pixels (RGBA, top row first) stay in memory for the
+    // composite "bench" screenshot.
+    void capture_memory() { capture_memory_ = true; }
+    bool take_capture(std::vector<uint8_t> &rgba, int &width, int &height);
 
     // Pixels per logical unit on the monitor the window is on (HiDPI).
     float scale() const { return scale_; }
@@ -86,6 +92,10 @@ private:
     double grab_y_ = 0.0;
     std::string capture_path_;
     bool captured_ = false;
+    bool capture_memory_ = false;
+    std::vector<uint8_t> captured_pixels_;
+    int captured_w_ = 0;
+    int captured_h_ = 0;
     bool overlay_ = false;
     Fonts fonts_;
 };
