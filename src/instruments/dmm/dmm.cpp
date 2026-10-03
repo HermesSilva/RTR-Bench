@@ -382,7 +382,7 @@ void Multimeter::draw(ui::Window &window)
                       tip.port >= 0 ? colour : t.label_dim, port_name.c_str());
         rx += 60.0f * s;
         // The display: a dark window with the seven-segment value and the unit.
-        float disp_w = 190.0f * s;
+        float disp_w = 178.0f * s;
         ImVec2 dmin(rx, y + 2.0f * s);
         ImVec2 dmax(rx + disp_w, y + row_h - 2.0f * s);
         draw->AddRectFilled(dmin, dmax, t.screen, 4.0f * s);

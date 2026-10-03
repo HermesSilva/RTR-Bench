@@ -138,7 +138,7 @@ void App::open_rack()
 {
     ui::WindowSpec spec;
     spec.title = "RTR-Bench Rack";
-    spec.width = 1000;
+    spec.width = 940;
     spec.height = 200;
     spec.x = rack_x_;
     spec.y = rack_y_;
@@ -239,31 +239,31 @@ void App::create_instrument(Instrument kind, int instance, int x, int y)
     case Instrument::Scope:
         instrument = std::make_unique<Scope>(*this);
         spec.title = "RTR-Bench Oscilloscope";
-        spec.width = 1000;
+        spec.width = 940;
         spec.height = 560;
         break;
     case Instrument::Logic:
         instrument = std::make_unique<LogicAnalyzer>(*this);
         spec.title = "RTR-Bench Logic Analyzer";
-        spec.width = 1000;
+        spec.width = 940;
         spec.height = 420;
         break;
     case Instrument::Generator:
         instrument = std::make_unique<Generator>(*this);
         spec.title = "RTR-Bench Generator";
-        spec.width = 1000;
+        spec.width = 940;
         spec.height = 220;
         break;
     case Instrument::Supply:
         instrument = std::make_unique<Supply>(*this);
         spec.title = "RTR-Bench Power Supply";
-        spec.width = 1000;
+        spec.width = 940;
         spec.height = 220;
         break;
     case Instrument::Multimeter:
         instrument = std::make_unique<Multimeter>(*this);
         spec.title = "RTR-Bench Multimeter";
-        spec.width = 1000;
+        spec.width = 940;
         spec.height = 230;
         break;
     }

@@ -206,8 +206,8 @@ void Supply::draw(ui::Window &window)
         // What the target sees: on a logic target the level the set voltage means.
         float shown = !o.on ? 0.0f : (analog_target ? o.volts : (o.volts >= logic_threshold ? 3.3f : 0.0f));
         std::snprintf(volts, sizeof(volts), "%.2f", static_cast<double>(shown));
-        display(volts, "V", o.on ? colour : t.readout_dim, 104.0f * s);
-        display("0.000", "A", o.on ? colour : t.readout_dim, 104.0f * s);
+        display(volts, "V", o.on ? colour : t.readout_dim, 94.0f * s);
+        display("0.000", "A", o.on ? colour : t.readout_dim, 94.0f * s);
         // The set voltage, small, under the SET knob.
         char set_text[24];
         std::snprintf(set_text, sizeof(set_text), "%.1f V", static_cast<double>(o.volts));

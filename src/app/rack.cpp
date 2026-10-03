@@ -87,7 +87,7 @@ void Rack::draw(ui::Window &window)
 
     // ---- PROBE: keys, then state and address, then rate and clock ---------
     ImVec2 probe_min(frame.panel_min.x, top);
-    ImVec2 probe_max(frame.panel_min.x + 236.0f * s, bottom);
+    ImVec2 probe_max(frame.panel_min.x + 222.0f * s, bottom);
     ui::group_frame(probe_min, probe_max, "PROBE", s);
     float x = probe_min.x + 10.0f * s;
     float y = probe_min.y + 10.0f * s;
@@ -132,7 +132,7 @@ void Rack::draw(ui::Window &window)
     }
 
     // ---- INSTRUMENTS: one row of keys, then the theme row ----------------
-    const float inst_w = 300.0f * s;
+    const float inst_w = 282.0f * s;
     ImVec2 inst_min(frame.panel_max.x - inst_w, top);
     ImVec2 inst_max(frame.panel_max.x, bottom);
     ui::group_frame(inst_min, inst_max, "INSTRUMENTS", s);
