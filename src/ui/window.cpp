@@ -224,4 +224,10 @@ void Window::minimize()
     glfwIconifyWindow(window_);
 }
 
+void Window::raise()
+{
+    glfwRestoreWindow(window_);
+    glfwFocusWindow(window_);
+}
+
 }  // namespace ui

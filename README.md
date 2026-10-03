@@ -42,7 +42,17 @@ The full plan, with the reason behind each choice, is in [`docs/PLANO.md`](docs/
 
 ## Current state
 
-Stage 0 of the plan: repository, build system and a first window with the shape of a chassis.
+Stage 1 of the plan: the rack is up and connected to the emulator.
+
+![The rack, dark theme, connected to the emulated RTR-OS](docs/screenshots/rack-dark.png)
+
+- One process, one window per instrument: undecorated, transparent framebuffer, the chassis drawn with handles, bevel, header and window controls; drag by the panel.
+- `Probe` interface and the **emulator probe**: a thread connects to the `rtr-scope` device (TCP, reconnects by itself), parses the stream (today's format and the planned version 2) and hands the events to the interface through a lock-free queue.
+- The **rack**: probe keys and state, event rate and virtual clock, the 28 GPIOs of the header as jacks with a level LED and an activity mark, keys that open the instruments, the three themes.
+- `rtr-probe-dump`: console tool that prints what the probe sends.
+- Windowless tests (Catch2): protocol parser, event queue, port state, themes.
+
+Not there yet: the instruments themselves (the oscilloscope opens with a placeholder screen), wires, fonts of our own (the default ImGui font is still in use), settings persistence.
 
 ## Repository layout
 
@@ -94,7 +104,11 @@ Both run CMake with Ninja in `build/`, with warnings as errors.
 scripts\run.ps1
 ```
 
-The rack opens first. Choose the probe, open an instrument and wire it to a port. To see the emulated RTR-OS, start it with `scripts\run-web.ps1 -Scope` in the RTR-OS repository: the probe listens on `127.0.0.1:5555`.
+The rack opens first. Choose the probe, open an instrument and wire it to a port. To see the emulated RTR-OS, start it with `scripts\run-web.ps1 -Scope` in the RTR-OS repository: the probe listens on port 5555 (bound to every address, because WSL only mirrors wildcard listeners to Windows). The probe accepts one client at a time.
+
+```powershell
+build\rtr-probe-dump.exe 127.0.0.1 5555 3    # prints three seconds of probe traffic
+```
 
 ## Coding rules
 

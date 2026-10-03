@@ -11,20 +11,58 @@
 
 namespace app {
 
-App::App() = default;
+App::App()
+{
+    probe_ = std::make_unique<probes::EmulatorProbe>();
+    last_rate_time_ = std::chrono::steady_clock::now();
+}
+
 App::~App() = default;
 
-// Stage 0: a single window with the chassis, to prove the shape, the drag and
-// the transparency on both platforms. The rack takes its place in stage 1.
 void App::open_rack()
 {
     ui::WindowSpec spec;
-    spec.title = "RTR-Bench";
+    spec.title = "RTR-Bench Rack";
+    spec.width = 1180;
+    spec.height = 200;
+    rack_window_ = std::make_unique<ui::Window>(spec);
+    if (!rack_window_->valid()) {
+        std::fprintf(stderr, "rtr-bench: cannot create the rack window\n");
+        rack_window_.reset();
+        return;
+    }
+    rack_window_->set_draw([this](ui::Window &w) { rack_.draw(w); });
+}
+
+bool App::instrument_open(Instrument kind) const
+{
+    for (const OpenInstrument &i : instruments_) {
+        if (i.kind == kind) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Stage 1: only the oscilloscope opens, with its placeholder screen. The
+// real instruments arrive from stage 2 on.
+void App::open_instrument(Instrument kind)
+{
+    for (OpenInstrument &i : instruments_) {
+        if (i.kind == kind) {
+            i.window->raise();
+            return;
+        }
+    }
+    if (kind != Instrument::Scope) {
+        return;
+    }
+    ui::WindowSpec spec;
+    spec.title = "RTR-Bench Oscilloscope";
     spec.width = 1120;
     spec.height = 640;
     auto window = std::make_unique<ui::Window>(spec);
     if (!window->valid()) {
-        std::fprintf(stderr, "rtr-bench: cannot create the window\n");
         return;
     }
     window->set_draw([](ui::Window &w) {
@@ -33,8 +71,6 @@ void App::open_rack()
         chassis.title = "Digital Oscilloscope";
         ui::ChassisFrame frame = ui::begin_chassis(w, chassis);
 
-        // Placeholder screen: the bezel and the graticule, so the proportions
-        // can be judged before the real screen exists.
         const ui::Theme &t = ui::current_theme();
         const float s = w.scale();
         ImVec2 screen_min = frame.panel_min;
@@ -57,11 +93,40 @@ void App::open_rack()
                                 i == rows / 2 ? t.graticule_axis : t.graticule, 1.0f);
         }
         frame.draw->AddText(ImVec2(inner_min.x + 12.0f * s, inner_min.y + 10.0f * s), t.readout_dim,
-                            "no probe");
-
+                            "stage 2: the real screen");
         ui::end_chassis();
     });
-    windows_.push_back(std::move(window));
+    instruments_.push_back(OpenInstrument{kind, std::move(window)});
+}
+
+void App::set_theme(ui::ThemeKind kind)
+{
+    ui::set_theme(kind);
+}
+
+// Once per frame: drain the probe into the port state and keep the rate.
+void App::pump_probe()
+{
+    events_.clear();
+    probe_->poll(events_);
+    for (const core::DigitalEvent &e : events_) {
+        ports_.apply(e);
+    }
+    functions_.clear();
+    probe_->poll_functions(functions_);
+    for (const probes::EmulatorProbe::FunctionChange &f : functions_) {
+        ports_.set_direction(f.port, probes::fsel_direction(f.fsel));
+    }
+    ports_.end_frame();
+
+    auto now = std::chrono::steady_clock::now();
+    double elapsed = std::chrono::duration<double>(now - last_rate_time_).count();
+    if (elapsed >= 0.5) {
+        uint64_t count = probe_->stats().events;
+        events_per_second_ = static_cast<double>(count - last_event_count_) / elapsed;
+        last_event_count_ = count;
+        last_rate_time_ = now;
+    }
 }
 
 int App::run()
@@ -72,19 +137,29 @@ int App::run()
     }
     ui::set_theme(ui::ThemeKind::Dark);
     open_rack();
+    if (!rack_window_) {
+        ui::platform_shutdown();
+        return 1;
+    }
+    probe_->connect();
 
-    while (!windows_.empty()) {
+    while (rack_window_ && !rack_window_->close_requested()) {
         ui::platform_poll();
-        for (auto &window : windows_) {
-            window->frame();
+        pump_probe();
+        rack_window_->frame();
+        for (OpenInstrument &i : instruments_) {
+            i.window->frame();
         }
-        windows_.erase(std::remove_if(windows_.begin(), windows_.end(),
-                                      [](const std::unique_ptr<ui::Window> &w) {
-                                          return w->close_requested();
-                                      }),
-                       windows_.end());
+        instruments_.erase(std::remove_if(instruments_.begin(), instruments_.end(),
+                                          [](const OpenInstrument &i) {
+                                              return i.window->close_requested();
+                                          }),
+                           instruments_.end());
     }
 
+    probe_->disconnect();
+    instruments_.clear();
+    rack_window_.reset();
     ui::platform_shutdown();
     return 0;
 }

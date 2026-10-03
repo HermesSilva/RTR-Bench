@@ -15,6 +15,8 @@ the requirements of the area you touch before changing anything.
 - **No flexibility that burdens the project.** One way of doing each thing.
 - Commit and push only when the user asks. The repository is public
   (Apache-2.0); never commit secrets, personal data or conversation exports.
+- **No attribution trailers in commits**: do not add `Co-Authored-By:` lines
+  (or any other AI attribution) to commit messages or pull requests.
 
 ## Language
 

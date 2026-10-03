@@ -48,6 +48,7 @@ public:
     void size(int &width, int &height) const;
     void set_size(int width, int height);
     void minimize();
+    void raise();   // bring to front and focus
 
     // Pixels per logical unit on the monitor the window is on (HiDPI).
     float scale() const { return scale_; }

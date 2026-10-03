@@ -6,7 +6,11 @@ comentários, scripts e README em inglês. Repositório próprio
 `D:\Tootega\Source\RTR-SO\RTR-Bench` (dentro da pasta do RTR-OS por
 conveniência; ignorada pelo git do RTR-OS).
 
-Estado: **planejamento**. Nenhuma linha de código ainda.
+Estado: **etapas 0 e 1 feitas** (2026-10-03): janela recortada, `Probe`,
+sonda do emulador, rack conectado ao qemu-pi4 com as portas vivas, testes.
+Verificado no Windows; no Linux compila e os testes passam (janela não vista:
+WSLg sem cliente RDP na sessão). Observação do protocolo: o chardev do QEMU
+aceita um cliente por vez.
 
 ## 1. Decisões tomadas
 

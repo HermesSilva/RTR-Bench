@@ -69,25 +69,43 @@ target_link_libraries(imgui PUBLIC glfw)
 # ---------------------------------------------------------------------------
 find_package(OpenGL REQUIRED)
 
+# Core and probes: no window, so the tests link them too.
+add_library(rtr-core STATIC
+    src/core/scope_protocol.cpp
+    src/core/port_state.cpp
+    src/probes/tcp_client.cpp
+    src/probes/emulator_probe.cpp)
+target_include_directories(rtr-core PUBLIC src)
+target_compile_definitions(rtr-core PUBLIC $<$<PLATFORM_ID:Windows>:NOMINMAX WIN32_LEAN_AND_MEAN>)
+if(WIN32)
+    target_link_libraries(rtr-core PUBLIC ws2_32)
+endif()
+find_package(Threads REQUIRED)
+target_link_libraries(rtr-core PUBLIC Threads::Threads)
+
 add_executable(rtr-bench
     src/app/main.cpp
     src/app/app.cpp
+    src/app/rack.cpp
     src/ui/theme.cpp
     src/ui/window.cpp
-    src/ui/chassis.cpp)
+    src/ui/chassis.cpp
+    src/ui/widgets.cpp)
 target_include_directories(rtr-bench PRIVATE src)
-target_link_libraries(rtr-bench PRIVATE imgui glfw OpenGL::GL nlohmann_json::nlohmann_json)
+target_link_libraries(rtr-bench PRIVATE rtr-core imgui glfw OpenGL::GL nlohmann_json::nlohmann_json)
 target_compile_definitions(rtr-bench PRIVATE
     RTR_BENCH_VERSION="${PROJECT_VERSION}"
     $<$<PLATFORM_ID:Windows>:NOMINMAX WIN32_LEAN_AND_MEAN>)
 
-if(MSVC AND NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    target_compile_options(rtr-bench PRIVATE /W4 /WX /permissive-)
-else()
-    target_compile_options(rtr-bench PRIVATE
-        -Wall -Wextra -Werror -Wconversion -Wshadow -Wundef
-        -Wno-unused-command-line-argument)
-endif()
+foreach(target rtr-core rtr-bench)
+    if(MSVC AND NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        target_compile_options(${target} PRIVATE /W4 /WX /permissive-)
+    else()
+        target_compile_options(${target} PRIVATE
+            -Wall -Wextra -Werror -Wconversion -Wshadow -Wundef
+            -Wno-unused-command-line-argument)
+    endif()
+endforeach()
 
 if(WIN32)
     # A GUI program: no console window. The entry point is still main().
@@ -100,10 +118,14 @@ if(WIN32)
     target_link_libraries(rtr-bench PRIVATE dwmapi)
 endif()
 
+# Console diagnostic: prints what the emulator probe sends.
+add_executable(rtr-probe-dump tools/probe_dump.cpp)
+target_link_libraries(rtr-probe-dump PRIVATE rtr-core)
+
 if(RTR_BENCH_TIDY)
     find_program(CLANG_TIDY_EXE NAMES clang-tidy)
     if(CLANG_TIDY_EXE)
-        set_target_properties(rtr-bench PROPERTIES CXX_CLANG_TIDY "${CLANG_TIDY_EXE}")
+        set_target_properties(rtr-bench rtr-core PROPERTIES CXX_CLANG_TIDY "${CLANG_TIDY_EXE}")
     else()
         message(WARNING "clang-tidy not found: static checks skipped")
     endif()
