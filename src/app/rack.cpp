@@ -72,6 +72,9 @@ void Rack::draw(ui::Window &window)
     const float s = window.scale();
     ImDrawList *draw = ImGui::GetWindowDrawList();
     core::Probe &probe = app_.probe();
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        app_.cancel_wiring();
+    }
     const core::ProbeCapabilities &cap = probe.capabilities();
     core::ProbeState state = probe.state();
     core::ProbeStats stats = probe.stats();
@@ -205,6 +208,7 @@ void Rack::draw(ui::Window &window)
         if (ui::jack(id, centre, radius, look, s)) {
             app_.select_port(static_cast<int>(i));
         }
+        app_.anchor_port(static_cast<int>(i), window, centre.x, centre.y);
         if (app_.selected_port() == static_cast<int>(i)) {
             draw->AddCircle(centre, radius + 3.0f * s, t.led_warn, 24, 2.0f * s);
         }

@@ -53,13 +53,13 @@ Stage 2 of the plan: the rack and the mixed-signal oscilloscope, on the emulator
 - One process, one window per instrument: undecorated, transparent framebuffer, the chassis drawn with handles, bevel, header and window controls; drag by the panel. Fonts embedded in the executable (Inter, JetBrains Mono, DSEG7).
 - `Probe` interface and the **emulator probe**: a thread connects to the `rtr-scope` device (TCP, reconnects by itself), parses the stream (today's format and the planned version 2) and hands the events to the interface through a lock-free queue.
 - The **rack**: probe keys and state, event rate and virtual clock, the 28 GPIOs of the header as jacks with a level LED and an activity mark, keys that open the instruments, the three themes.
-- **Wires** from either end: click a jack on the rack and then a channel key on an instrument, or the other way round; a wired jack shows a plug in the channel colour; clicking a wired channel again removes the wire. (The wire drawn across the desktop comes in stage 3.)
+- **Wires** from either end: click a jack on the rack and then a channel jack on an instrument, or the other way round; while a wire is being made the cable follows the mouse across the desktop (Esc cancels); clicking a wired channel key again removes the wire. On Windows and X11 every wire is a **cable drawn across the desktop** — a hanging curve with shadow and plugs, in its own always-on-top, click-through window — so it goes over whatever is between the rack and the instrument. On Wayland (no window positions) the ends show the plug and the port name instead.
 - The **demo probe** (DEMO key on the rack): synthetic signals with no target — an 8-bit counter and a PWM on digital ports, a sine, a triangle, a ramp and a noisy sine on analog ports sampled at 1 MS/s. It shows the bench without hardware and stands in for the analog channels until the ADALM2000 arrives.
 - The **oscilloscope**: four channels, digital or analog according to the port wired; 1-2-5 time base from 10 ns/div to 10 s/div, position; volts/div (10 mV to 10 V) and offset per analog channel; trigger by channel, slope and mode (auto, normal, single), with a level knob for an analog source; run/stop; memory of a million transitions or samples per channel, dense regions drawn as bands or min/max columns; cursors with Δt and 1/Δt; measurements of the selected channel (digital: frequency, period, widths, duty, edges; analog: Vpp, Vmax, Vmin, Vmean, Vrms, frequency, period); keyboard (space, S, C, arrows, + −).
 - `rtr-probe-dump`: console tool that prints what the probe sends; `rtr-bench --probe demo --open scope --wire scope:1=9 --screenshot scope=FILE.png` starts on a probe, opens, wires and saves a window with its transparent margins (`scripts\screenshot.ps1`).
 - Windowless tests (Catch2): protocol parser, event queue, port state, trace ring, trigger search, measurements, time base, themes.
 
-Not there yet: math channels, the other instruments, the wire across the desktop, settings persistence.
+Not there yet: math channels, the other instruments, settings persistence.
 
 ## Repository layout
 

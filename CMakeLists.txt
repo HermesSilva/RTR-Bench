@@ -114,6 +114,7 @@ add_executable(rtr-bench
     src/ui/window.cpp
     src/ui/chassis.cpp
     src/ui/widgets.cpp
+    src/ui/wire.cpp
     src/ui/png.cpp)
 target_include_directories(rtr-bench PRIVATE src)
 target_link_libraries(rtr-bench PRIVATE rtr-core imgui glfw OpenGL::GL nlohmann_json::nlohmann_json)
@@ -140,6 +141,10 @@ if(WIN32)
         target_link_options(rtr-bench PRIVATE /ENTRY:mainCRTStartup)
     endif()
     target_link_libraries(rtr-bench PRIVATE dwmapi)
+elseif(UNIX)
+    # The cursor on the desktop (for the wire being made) is read through Xlib.
+    find_package(X11 REQUIRED)
+    target_link_libraries(rtr-bench PRIVATE X11::X11)
 endif()
 
 # Console diagnostic: prints what the emulator probe sends.

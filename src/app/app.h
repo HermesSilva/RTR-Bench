@@ -69,6 +69,13 @@ public:
     void offer_channel(Instrument instrument, int channel);         // from an instrument
     bool channel_offered(Instrument instrument, int channel) const;
     void unwire(Instrument instrument, int channel);
+    void cancel_wiring();
+
+    // Where the ends of the wires are on the desktop, reported every frame by
+    // the rack (ports) and the instruments (channels) from their windows.
+    void anchor_port(int port, ui::Window &window, float local_x, float local_y);
+    void anchor_channel(Instrument instrument, int channel, ui::Window &window, float local_x, float local_y);
+    bool wires_across_desktop() const { return overlays_enabled_; }
 
 private:
     void open_rack();
@@ -102,6 +109,37 @@ private:
     bool offered_ = false;
     Instrument offered_instrument_ = Instrument::Scope;
     int offered_channel_ = -1;
+
+    // Wires across the desktop: anchors in desktop coordinates and one
+    // overlay window per wire (plus one for the cable being made).
+    struct Anchor {
+        bool valid = false;
+        float x = 0.0f;
+        float y = 0.0f;
+    };
+    std::vector<Anchor> port_anchors_;
+    struct ChannelAnchor {
+        Instrument instrument;
+        int channel;
+        Anchor anchor;
+    };
+    std::vector<ChannelAnchor> channel_anchors_;
+    struct Overlay {
+        std::unique_ptr<ui::Window> window;
+        float from_x = 0.0f;   // ends in overlay-window coordinates
+        float from_y = 0.0f;
+        float to_x = 0.0f;
+        float to_y = 0.0f;
+        uint32_t colour = 0;
+        bool dangling = false;
+        bool used = false;
+    };
+    std::vector<Overlay> overlays_;
+    bool overlays_enabled_ = false;
+    void begin_anchors();
+    void update_overlays();
+    Overlay &overlay_slot(size_t index);
+    const Anchor *channel_anchor(Instrument instrument, int channel) const;
 
     struct ScreenshotTarget {
         std::string window;

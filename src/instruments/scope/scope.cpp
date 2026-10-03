@@ -167,6 +167,9 @@ void Scope::draw(ui::Window &window)
     const float s = window.scale();
 
     handle_keys();
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
+        app_.cancel_wiring();
+    }
 
     // The trigger source feeds the engine; the view it decides is drawn.
     const Channel &source = ch_[static_cast<size_t>(engine_.settings.trigger_channel)];
@@ -742,8 +745,24 @@ void Scope::draw_controls(ui::Window &window, ImVec2 min, ImVec2 max)
                                                 ImVec2(x + static_cast<float>(c) * (kw + gap) + kw + 2.0f * s, y + key_h + 2.0f * s),
                                                 t.led_warn, 4.0f * s, 0, 1.5f * s);
         }
+        // The wire ends at a jack drawn under the key.
+        ImVec2 jack_c(x + static_cast<float>(c) * (kw + gap) + kw * 0.5f, y + key_h + 18.0f * s);
+        ui::JackLook look;
+        look.name = "";
+        look.level = -1;
+        look.active = false;
+        look.input = true;
+        look.output = false;
+        look.wire_colour = ch.port >= 0 ? ui::channel_colour(c) : 0;
+        char jid[16];
+        std::snprintf(jid, sizeof(jid), "##chjack%d", c);
+        if (ui::jack(jid, jack_c, 8.0f * s, look, s)) {
+            app_.offer_channel(Instrument::Scope, c);
+            selected_ = c;
+        }
+        app_.anchor_channel(Instrument::Scope, c, window, jack_c.x, jack_c.y);
     }
-    y += key_h + gap;
+    y += key_h + 40.0f * s;   // room for the jacks under the keys
     kw = (inner_w - gap) / 2.0f;
     if (ui::key("##cursors", "CURSORS", ImVec2(x, y), ImVec2(kw, key_h), cursors_, t.led_warn, s)) {
         cursors_ = !cursors_;

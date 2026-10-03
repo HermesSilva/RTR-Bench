@@ -4,8 +4,11 @@
 #include <algorithm>
 #include <cstdio>
 
+#include <imgui.h>
+
 #include "instruments/scope/scope.h"
 #include "ui/theme.h"
+#include "ui/wire.h"
 
 namespace app {
 
@@ -84,6 +87,8 @@ void App::open_rack()
     spec.title = "RTR-Bench Rack";
     spec.width = 1180;
     spec.height = 200;
+    spec.x = 40;
+    spec.y = 40;
     rack_window_ = std::make_unique<ui::Window>(spec);
     if (!rack_window_->valid()) {
         std::fprintf(stderr, "rtr-bench: cannot create the rack window\n");
@@ -149,6 +154,8 @@ void App::create_instrument(Instrument kind)
         spec.title = "RTR-Bench Oscilloscope";
         spec.width = 1180;
         spec.height = 640;
+        spec.x = 40;
+        spec.y = 300;
         break;
     default:
         return;  // not built yet
@@ -263,6 +270,153 @@ bool App::channel_offered(Instrument instrument, int channel) const
     return offered_ && offered_instrument_ == instrument && offered_channel_ == channel;
 }
 
+void App::cancel_wiring()
+{
+    selected_port_ = -1;
+    offered_ = false;
+}
+
+// ---- wires across the desktop ---------------------------------------------
+
+void App::begin_anchors()
+{
+    port_anchors_.assign(probe_->ports().size(), Anchor{});
+    channel_anchors_.clear();
+}
+
+void App::anchor_port(int port, ui::Window &window, float local_x, float local_y)
+{
+    if (port < 0 || static_cast<size_t>(port) >= port_anchors_.size() || window.minimized()) {
+        return;
+    }
+    int wx = 0;
+    int wy = 0;
+    window.position(wx, wy);
+    port_anchors_[static_cast<size_t>(port)] = Anchor{true, static_cast<float>(wx) + local_x, static_cast<float>(wy) + local_y};
+}
+
+void App::anchor_channel(Instrument instrument, int channel, ui::Window &window, float local_x, float local_y)
+{
+    if (window.minimized()) {
+        return;
+    }
+    int wx = 0;
+    int wy = 0;
+    window.position(wx, wy);
+    channel_anchors_.push_back(ChannelAnchor{
+        instrument, channel, Anchor{true, static_cast<float>(wx) + local_x, static_cast<float>(wy) + local_y}});
+}
+
+const App::Anchor *App::channel_anchor(Instrument instrument, int channel) const
+{
+    for (const ChannelAnchor &a : channel_anchors_) {
+        if (a.instrument == instrument && a.channel == channel) {
+            return &a.anchor;
+        }
+    }
+    return nullptr;
+}
+
+App::Overlay &App::overlay_slot(size_t index)
+{
+    while (overlays_.size() <= index) {
+        Overlay o;
+        ui::WindowSpec spec;
+        spec.title = "RTR-Bench Wire";
+        spec.width = 64;
+        spec.height = 64;
+        spec.x = 0;
+        spec.y = 0;
+        spec.overlay = true;
+        o.window = std::make_unique<ui::Window>(spec);
+        overlays_.push_back(std::move(o));
+        Overlay &made = overlays_.back();
+        size_t slot = overlays_.size() - 1;
+        made.window->set_draw([this, slot](ui::Window &w) {
+            Overlay &self = overlays_[slot];
+            ImGuiViewport *viewport = ImGui::GetMainViewport();
+            ImGui::SetNextWindowPos(viewport->Pos);
+            ImGui::SetNextWindowSize(viewport->Size);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+            ImGui::Begin("##wire", nullptr,
+                         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoBackground |
+                             ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav);
+            ImGui::PopStyleVar(2);
+            ui::draw_wire(ImGui::GetWindowDrawList(), ImVec2(self.from_x, self.from_y), ImVec2(self.to_x, self.to_y),
+                          self.colour, w.scale(), self.dangling);
+            ImGui::End();
+        });
+    }
+    return overlays_[index];
+}
+
+// Once per frame, after the rack and the instruments reported their anchors:
+// place one overlay per wire over the two ends, plus one following the mouse
+// while a wire is being made.
+void App::update_overlays()
+{
+    if (!overlays_enabled_) {
+        return;
+    }
+    for (Overlay &o : overlays_) {
+        o.used = false;
+    }
+    size_t index = 0;
+    auto place = [&](float x0, float y0, float x1, float y1, uint32_t colour, bool dangling) {
+        Overlay &o = overlay_slot(index++);
+        float margin = ui::wire_margin(o.window->scale());
+        float left = std::min(x0, x1) - margin;
+        float top = std::min(y0, y1) - margin;
+        float right = std::max(x0, x1) + margin;
+        float bottom = std::max(y0, y1) + margin;
+        o.window->set_bounds(static_cast<int>(left), static_cast<int>(top), static_cast<int>(right - left),
+                             static_cast<int>(bottom - top));
+        o.from_x = x0 - left;
+        o.from_y = y0 - top;
+        o.to_x = x1 - left;
+        o.to_y = y1 - top;
+        o.colour = colour;
+        o.dangling = dangling;
+        o.used = true;
+    };
+
+    for (const Wire &w : wires_) {
+        if (w.port < 0 || static_cast<size_t>(w.port) >= port_anchors_.size()) {
+            continue;
+        }
+        const Anchor &p = port_anchors_[static_cast<size_t>(w.port)];
+        const Anchor *c = channel_anchor(w.instrument, w.channel);
+        if (!p.valid || !c || !c->valid) {
+            continue;
+        }
+        place(p.x, p.y, c->x, c->y, ui::channel_colour(w.channel), false);
+    }
+    // The cable being made follows the cursor from its known end.
+    int cx = 0;
+    int cy = 0;
+    if ((selected_port_ >= 0 || offered_) && ui::platform_cursor(cx, cy)) {
+        const Anchor *from = nullptr;
+        uint32_t colour = 0xFFFFFFFFu;
+        if (selected_port_ >= 0 && static_cast<size_t>(selected_port_) < port_anchors_.size()) {
+            from = &port_anchors_[static_cast<size_t>(selected_port_)];
+            colour = ui::current_theme().led_warn;
+        } else if (offered_) {
+            from = channel_anchor(offered_instrument_, offered_channel_);
+            colour = ui::channel_colour(offered_channel_);
+        }
+        if (from && from->valid) {
+            place(from->x, from->y, static_cast<float>(cx), static_cast<float>(cy), colour, true);
+        }
+    }
+    for (Overlay &o : overlays_) {
+        o.window->show(o.used);
+        if (o.used) {
+            o.window->frame();
+        }
+    }
+}
+
 // ---- frame loop -----------------------------------------------------------
 
 // Once per frame: drain the probe into the port state and the instruments,
@@ -308,6 +462,7 @@ int App::run()
         return 1;
     }
     ui::set_theme(ui::ThemeKind::Dark);
+    overlays_enabled_ = ui::platform_has_window_positions();
     open_rack();
     if (!rack_window_) {
         ui::platform_shutdown();
@@ -331,6 +486,7 @@ int App::run()
             create_probe(switch_to_);
         }
         pump_probe();
+        begin_anchors();
         if (!screenshots_.empty()) {
             double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
             if (!capture_asked && elapsed >= screenshot_delay_) {
@@ -366,6 +522,7 @@ int App::run()
         for (OpenInstrument &i : instruments_) {
             i.window->frame();
         }
+        update_overlays();
         instruments_.erase(std::remove_if(instruments_.begin(), instruments_.end(),
                                           [](const OpenInstrument &i) {
                                               return i.window->close_requested();
@@ -374,6 +531,7 @@ int App::run()
     }
 
     probe_->disconnect();
+    overlays_.clear();
     instruments_.clear();
     rack_window_.reset();
     ui::platform_shutdown();

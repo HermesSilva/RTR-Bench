@@ -9,6 +9,10 @@
 #ifdef _WIN32
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
+#elif defined(__linux__)
+#define GLFW_EXPOSE_NATIVE_X11
+#include <GLFW/glfw3native.h>
+#include <X11/Xlib.h>
 #endif
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
@@ -64,6 +68,50 @@ void platform_shutdown()
     glfwTerminate();
 }
 
+bool platform_has_window_positions()
+{
+    return glfwGetPlatform() != GLFW_PLATFORM_WAYLAND;
+}
+
+bool platform_cursor(int &x, int &y)
+{
+#ifdef _WIN32
+    POINT p;
+    if (!GetCursorPos(&p)) {
+        return false;
+    }
+    x = p.x;
+    y = p.y;
+    return true;
+#elif defined(__linux__)
+    if (glfwGetPlatform() != GLFW_PLATFORM_X11) {
+        return false;
+    }
+    Display *display = glfwGetX11Display();
+    if (!display) {
+        return false;
+    }
+    ::Window root = DefaultRootWindow(display);
+    ::Window ret_root = 0;
+    ::Window ret_child = 0;
+    int root_x = 0;
+    int root_y = 0;
+    int win_x = 0;
+    int win_y = 0;
+    unsigned int mask = 0;
+    if (!XQueryPointer(display, root, &ret_root, &ret_child, &root_x, &root_y, &win_x, &win_y, &mask)) {
+        return false;
+    }
+    x = root_x;
+    y = root_y;
+    return true;
+#else
+    (void)x;
+    (void)y;
+    return false;
+#endif
+}
+
 Window::Window(const WindowSpec &spec)
 {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
@@ -74,14 +122,27 @@ Window::Window(const WindowSpec &spec)
     glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);
     glfwWindowHint(GLFW_SCALE_TO_MONITOR, GLFW_TRUE);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_FLOATING, spec.overlay ? GLFW_TRUE : GLFW_FALSE);
+    glfwWindowHint(GLFW_MOUSE_PASSTHROUGH, spec.overlay ? GLFW_TRUE : GLFW_FALSE);
+    glfwWindowHint(GLFW_FOCUS_ON_SHOW, spec.overlay ? GLFW_FALSE : GLFW_TRUE);
+    glfwWindowHint(GLFW_FOCUSED, spec.overlay ? GLFW_FALSE : GLFW_TRUE);
+    overlay_ = spec.overlay;
 
     window_ = glfwCreateWindow(spec.width, spec.height, spec.title.c_str(), nullptr, nullptr);
     if (!window_) {
         return;
     }
-    if (spec.x >= 0 && spec.y >= 0) {
+    if (spec.x != -1 || spec.y != -1) {
         glfwSetWindowPos(window_, spec.x, spec.y);
     }
+#ifdef _WIN32
+    if (spec.overlay) {
+        // No taskbar entry for the wires.
+        HWND overlay_hwnd = glfwGetWin32Window(window_);
+        LONG_PTR ex = GetWindowLongPtrW(overlay_hwnd, GWL_EXSTYLE);
+        SetWindowLongPtrW(overlay_hwnd, GWL_EXSTYLE, (ex | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE) & ~WS_EX_APPWINDOW);
+    }
+#endif
     glfwSetWindowUserPointer(window_, this);
     glfwMakeContextCurrent(window_);
     glfwSwapInterval(1);
@@ -112,7 +173,9 @@ Window::Window(const WindowSpec &spec)
 
     update_scale();
     fonts_ = load_fonts(scale_);
-    glfwShowWindow(window_);
+    if (!spec.overlay) {
+        glfwShowWindow(window_);
+    }
 }
 
 Window::~Window()
@@ -265,15 +328,45 @@ void Window::set_size(int width, int height)
     glfwSetWindowSize(window_, width, height);
 }
 
+void Window::set_bounds(int x, int y, int width, int height)
+{
+    int cx = 0;
+    int cy = 0;
+    int cw = 0;
+    int ch = 0;
+    glfwGetWindowPos(window_, &cx, &cy);
+    glfwGetWindowSize(window_, &cw, &ch);
+    if (cx != x || cy != y) {
+        glfwSetWindowPos(window_, x, y);
+    }
+    if (cw != width || ch != height) {
+        glfwSetWindowSize(window_, width, height);
+    }
+}
+
 void Window::minimize()
 {
     glfwIconifyWindow(window_);
+}
+
+bool Window::minimized() const
+{
+    return glfwGetWindowAttrib(window_, GLFW_ICONIFIED) != 0;
 }
 
 void Window::raise()
 {
     glfwRestoreWindow(window_);
     glfwFocusWindow(window_);
+}
+
+void Window::show(bool visible)
+{
+    if (visible) {
+        glfwShowWindow(window_);
+    } else {
+        glfwHideWindow(window_);
+    }
 }
 
 }  // namespace ui

@@ -21,6 +21,9 @@ struct WindowSpec {
     int height = 720;
     int x = -1;  // -1: let the system choose
     int y = -1;
+    // An overlay: always on top, lets the mouse through, takes no focus and
+    // has no taskbar entry. Used for the wires drawn across the desktop.
+    bool overlay = false;
 };
 
 class Window {
@@ -49,8 +52,11 @@ public:
     void position(int &x, int &y) const;
     void size(int &width, int &height) const;
     void set_size(int width, int height);
+    void set_bounds(int x, int y, int width, int height);
     void minimize();
+    bool minimized() const;
     void raise();   // bring to front and focus
+    void show(bool visible);
 
     // Saves the next rendered frame as a PNG with alpha (the transparent
     // margins stay transparent). Returns through `done` when written.
@@ -79,6 +85,7 @@ private:
     double grab_y_ = 0.0;
     std::string capture_path_;
     bool captured_ = false;
+    bool overlay_ = false;
     Fonts fonts_;
 };
 
@@ -86,5 +93,10 @@ private:
 bool platform_init();
 void platform_poll();
 void platform_shutdown();
+// Whether windows know where they are on the desktop (not on Wayland): the
+// wires across the desktop need it.
+bool platform_has_window_positions();
+// The mouse cursor in desktop coordinates, wherever it is; false when unknown.
+bool platform_cursor(int &x, int &y);
 
 }  // namespace ui
