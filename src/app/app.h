@@ -5,6 +5,7 @@
 
 #include <chrono>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "app/rack.h"
@@ -25,6 +26,10 @@ public:
 
     // Runs until the rack closes. Returns the process exit code.
     int run();
+
+    // Writes a PNG of the rack after `delay_seconds` of running, then quits
+    // (for the documentation screenshots).
+    void screenshot(const std::string &path, double delay_seconds);
 
     // For the rack and the instruments.
     core::Probe &probe() { return *probe_; }
@@ -50,6 +55,9 @@ private:
         std::unique_ptr<ui::Window> window;
     };
     std::vector<OpenInstrument> instruments_;
+
+    std::string screenshot_path_;
+    double screenshot_delay_ = 0.0;
 
     uint64_t last_event_count_ = 0;
     std::chrono::steady_clock::time_point last_rate_time_;

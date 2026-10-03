@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "ui/window.h"
 
+#include <algorithm>
 #include <cstdio>
+#include <vector>
 
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 #include <implot.h>
+
+#include "ui/png.h"
 
 namespace ui {
 
@@ -176,6 +180,24 @@ bool Window::frame()
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT);
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    if (!capture_path_.empty()) {
+        // Read the back buffer before the swap: straight RGBA, bottom row first.
+        std::vector<uint8_t> pixels(static_cast<size_t>(width) * static_cast<size_t>(height) * 4);
+        glPixelStorei(GL_PACK_ALIGNMENT, 1);
+        glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+        std::vector<uint8_t> flipped(pixels.size());
+        size_t row = static_cast<size_t>(width) * 4;
+        for (int y = 0; y < height; y++) {
+            std::copy(pixels.begin() + static_cast<std::ptrdiff_t>(static_cast<size_t>(height - 1 - y) * row),
+                      pixels.begin() + static_cast<std::ptrdiff_t>(static_cast<size_t>(height - y) * row),
+                      flipped.begin() + static_cast<std::ptrdiff_t>(static_cast<size_t>(y) * row));
+        }
+        if (!write_png(capture_path_, width, height, flipped.data())) {
+            std::fprintf(stderr, "rtr-bench: cannot write %s\n", capture_path_.c_str());
+        }
+        capture_path_.clear();
+        captured_ = true;
+    }
     glfwSwapBuffers(window_);
     return !close_requested_;
 }

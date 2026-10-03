@@ -104,6 +104,12 @@ void App::set_theme(ui::ThemeKind kind)
     ui::set_theme(kind);
 }
 
+void App::screenshot(const std::string &path, double delay_seconds)
+{
+    screenshot_path_ = path;
+    screenshot_delay_ = delay_seconds;
+}
+
 // Once per frame: drain the probe into the port state and keep the rate.
 void App::pump_probe()
 {
@@ -143,9 +149,20 @@ int App::run()
     }
     probe_->connect();
 
+    auto start = std::chrono::steady_clock::now();
+    bool capture_asked = false;
     while (rack_window_ && !rack_window_->close_requested()) {
         ui::platform_poll();
         pump_probe();
+        if (!screenshot_path_.empty()) {
+            double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+            if (!capture_asked && elapsed >= screenshot_delay_) {
+                rack_window_->capture(screenshot_path_);
+                capture_asked = true;
+            } else if (rack_window_->captured()) {
+                rack_window_->request_close();
+            }
+        }
         rack_window_->frame();
         for (OpenInstrument &i : instruments_) {
             i.window->frame();

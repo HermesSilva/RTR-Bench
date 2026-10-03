@@ -76,7 +76,8 @@ add_library(rtr-core STATIC
     src/probes/tcp_client.cpp
     src/probes/emulator_probe.cpp)
 target_include_directories(rtr-core PUBLIC src)
-target_compile_definitions(rtr-core PUBLIC $<$<PLATFORM_ID:Windows>:NOMINMAX WIN32_LEAN_AND_MEAN>)
+target_compile_definitions(rtr-core PUBLIC
+    $<$<PLATFORM_ID:Windows>:NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS>)
 if(WIN32)
     target_link_libraries(rtr-core PUBLIC ws2_32)
 endif()
@@ -90,12 +91,13 @@ add_executable(rtr-bench
     src/ui/theme.cpp
     src/ui/window.cpp
     src/ui/chassis.cpp
-    src/ui/widgets.cpp)
+    src/ui/widgets.cpp
+    src/ui/png.cpp)
 target_include_directories(rtr-bench PRIVATE src)
 target_link_libraries(rtr-bench PRIVATE rtr-core imgui glfw OpenGL::GL nlohmann_json::nlohmann_json)
 target_compile_definitions(rtr-bench PRIVATE
     RTR_BENCH_VERSION="${PROJECT_VERSION}"
-    $<$<PLATFORM_ID:Windows>:NOMINMAX WIN32_LEAN_AND_MEAN>)
+    $<$<PLATFORM_ID:Windows>:NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS>)
 
 foreach(target rtr-core rtr-bench)
     if(MSVC AND NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")

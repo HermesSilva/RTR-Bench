@@ -50,6 +50,11 @@ public:
     void minimize();
     void raise();   // bring to front and focus
 
+    // Saves the next rendered frame as a PNG with alpha (the transparent
+    // margins stay transparent). Returns through `done` when written.
+    void capture(const std::string &path) { capture_path_ = path; }
+    bool captured() const { return captured_; }
+
     // Pixels per logical unit on the monitor the window is on (HiDPI).
     float scale() const { return scale_; }
 
@@ -70,6 +75,8 @@ private:
     int move_origin_y_ = 0;
     double grab_x_ = 0.0;     // cursor position at the press, screen coordinates
     double grab_y_ = 0.0;
+    std::string capture_path_;
+    bool captured_ = false;
 };
 
 // Process-wide GLFW state.
