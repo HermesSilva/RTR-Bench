@@ -7,6 +7,7 @@
 #include <string>
 
 #include "app/app.h"
+#include "ui/theme.h"
 
 namespace {
 
@@ -66,6 +67,17 @@ int run(int argc, char **argv)
                 app.probe_at_start(app::App::ProbeKind::Demo);
             } else {
                 std::printf("rtr-bench: unknown probe '%s'\n", value.c_str());
+                return 2;
+            }
+        } else if (arg == "--theme") {
+            if (value == "light") {
+                app.theme_at_start(ui::ThemeKind::Light);
+            } else if (value == "dark") {
+                app.theme_at_start(ui::ThemeKind::Dark);
+            } else if (value == "amber") {
+                app.theme_at_start(ui::ThemeKind::Amber);
+            } else {
+                std::printf("rtr-bench: unknown theme '%s'\n", value.c_str());
                 return 2;
             }
         } else if (arg == "--open") {

@@ -65,6 +65,11 @@ public:
     void math_at_start(int channel, const std::string &formula) { math_presets_.push_back(MathPreset{channel, formula}); }
     const std::vector<MathPreset> &math_presets() const { return math_presets_; }
     void generator_on_at_start(int output) { generator_on_.push_back(output); }
+    void theme_at_start(ui::ThemeKind kind)
+    {
+        theme_ = kind;
+        theme_from_command_line_ = true;
+    }
     const std::vector<int> &generator_outputs_on() const { return generator_on_; }
 
     // For the rack and the instruments.
@@ -216,6 +221,8 @@ private:
     std::vector<Placement> placements_;
     std::vector<MathPreset> math_presets_;
     std::vector<int> generator_on_;
+    ui::ThemeKind theme_ = ui::ThemeKind::Dark;
+    bool theme_from_command_line_ = false;
 
     uint64_t last_event_count_ = 0;
     std::chrono::steady_clock::time_point last_rate_time_;

@@ -59,13 +59,31 @@ Stages 0 to 6 of the plan: the rack, the five instruments and the wires across t
 
 ![The whole bench on the demo probe: rack, oscilloscope, logic analyzer, generator, power supply and multimeter, wired](docs/screenshots/bench-all-dark.png)
 
+The same bench in the Light and Amber themes:
+
+| Light | Amber |
+|-------|-------|
+| ![Light theme](docs/screenshots/bench-all-light.png) | ![Amber theme](docs/screenshots/bench-all-amber.png) |
+
+The instruments, one by one (dark theme):
+
+| Waveform generator | Multimeter |
+|--------------------|------------|
+| ![GEN-1](docs/screenshots/gen-dark.png) | ![DMM-1](docs/screenshots/dmm-dark.png) |
+
+| Power supply | Logic analyzer |
+|--------------|----------------|
+| ![PSU-1](docs/screenshots/psu-dark.png) | ![LA-1](docs/screenshots/logic-dark.png) |
+
+Every screenshot in `docs/screenshots/` is produced by `rtr-bench --screenshot` (see [Run](#run)); the three themes are `*-dark`, `*-light` and `*-amber`.
+
 ![The bench on the demo probe: the rack wired to the oscilloscope, a sine and a triangle on the analog channels, two digital channels below, M1 = CH1 XOR CH2 and M2 = CH3 x CH4](docs/screenshots/bench-demo-dark.png)
 
 ![The rack, dark theme, connected to the emulated RTR-OS running a 16-bit counter on GPIO 4 to 19](docs/screenshots/rack-dark.png)
 
 ![The oscilloscope on the emulator showing four bits of the counter and M1 = CH1 XOR CH2](docs/screenshots/scope-dark.png)
 
-`rtr-bench --screenshot bench=FILE.png` composes every window and cable at its place on the desktop into one image; `rack=` and `scope=` save one window.
+`rtr-bench --screenshot bench=FILE.png` composes every window and cable at its place on the desktop into one image; `rack=`, `scope=`, `logic=`, `gen=`, `psu=` and `dmm=` save one window. `--theme light|dark|amber`, `--place NAME=X,Y`, `--open NAME`, `--wire NAME:CH=PORT`, `--gen N=on` and `--math N=FORMULA` set the scene; a screenshot run neither reads nor writes the saved settings.
 
 - One process, one window per instrument: undecorated, transparent framebuffer, the chassis drawn with handles, bevel, header and window controls; drag by the panel. Fonts embedded in the executable (Inter, JetBrains Mono, DSEG7).
 - `Probe` interface and the **emulator probe**: a thread connects to the `rtr-scope` device (TCP, reconnects by itself), parses the stream (today's format and the planned version 2) and hands the events to the interface through a lock-free queue.

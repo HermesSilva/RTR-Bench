@@ -804,6 +804,9 @@ int App::run()
     if (probe_from_command_line) {
         probe_kind_ = asked;
     }
+    if (theme_from_command_line_) {
+        ui::set_theme(theme_);
+    }
     open_rack();
     if (!rack_window_) {
         ui::platform_shutdown();
