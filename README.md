@@ -42,17 +42,21 @@ The full plan, with the reason behind each choice, is in [`docs/PLANO.md`](docs/
 
 ## Current state
 
-Stage 1 of the plan: the rack is up and connected to the emulator.
+Stage 2 of the plan: the rack and the digital oscilloscope, connected to the emulator.
 
 ![The rack, dark theme, connected to the emulated RTR-OS running a 16-bit counter on GPIO 4 to 19](docs/screenshots/rack-dark.png)
 
-- One process, one window per instrument: undecorated, transparent framebuffer, the chassis drawn with handles, bevel, header and window controls; drag by the panel.
+![The oscilloscope showing four bits of the counter](docs/screenshots/scope-dark.png)
+
+- One process, one window per instrument: undecorated, transparent framebuffer, the chassis drawn with handles, bevel, header and window controls; drag by the panel. Fonts embedded in the executable (Inter, JetBrains Mono, DSEG7).
 - `Probe` interface and the **emulator probe**: a thread connects to the `rtr-scope` device (TCP, reconnects by itself), parses the stream (today's format and the planned version 2) and hands the events to the interface through a lock-free queue.
 - The **rack**: probe keys and state, event rate and virtual clock, the 28 GPIOs of the header as jacks with a level LED and an activity mark, keys that open the instruments, the three themes.
-- `rtr-probe-dump`: console tool that prints what the probe sends; `rtr-bench --screenshot FILE.png` saves the rack with its transparent margins (`scripts\screenshot.ps1`).
-- Windowless tests (Catch2): protocol parser, event queue, port state, themes.
+- **Wires** from either end: click a jack on the rack and then a channel key on an instrument, or the other way round; a wired jack shows a plug in the channel colour; clicking a wired channel again removes the wire. (The wire drawn across the desktop comes in stage 3.)
+- The **oscilloscope**: four digital channels, 1-2-5 time base from 10 ns/div to 10 s/div, position, trigger by channel, slope and mode (auto, normal, single), run/stop, memory of a million transitions per channel with dense regions drawn as bands, cursors with Δt and 1/Δt, measurements of the selected channel (frequency, period, widths, duty, edge count), keyboard (space, S, C, arrows, + −).
+- `rtr-probe-dump`: console tool that prints what the probe sends; `rtr-bench --open scope --wire scope:1=18 --screenshot scope=FILE.png` opens, wires and saves a window with its transparent margins (`scripts\screenshot.ps1`).
+- Windowless tests (Catch2): protocol parser, event queue, port state, trace ring, trigger search, measurements, time base, themes.
 
-Not there yet: the instruments themselves (the oscilloscope opens with a placeholder screen), wires, fonts of our own (the default ImGui font is still in use), settings persistence.
+Not there yet: analog channels and math channels, the other instruments, the wire across the desktop, settings persistence.
 
 ## Repository layout
 

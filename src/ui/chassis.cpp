@@ -3,6 +3,7 @@
 
 #include <algorithm>
 
+#include "ui/fonts.h"
 #include "ui/theme.h"
 #include "ui/window.h"
 
@@ -143,8 +144,9 @@ ChassisFrame begin_chassis(Window &window, const ChassisSpec &spec)
     const float header_h = 34.0f * s;
     ImVec2 header_min = body_min + ImVec2(corner * 0.6f, 8.0f * s);
     float text_y = header_min.y + (header_h - ImGui::GetTextLineHeight()) * 0.5f;
-    draw->AddText(ImVec2(header_min.x, text_y), t.brand, spec.brand.c_str());
-    float x = header_min.x + ImGui::CalcTextSize(spec.brand.c_str()).x + 10.0f * s;
+    ImFont *bold = fonts().panel_bold;
+    draw->AddText(bold, bold->FontSize, ImVec2(header_min.x, text_y), t.brand, spec.brand.c_str());
+    float x = header_min.x + bold->CalcTextSizeA(bold->FontSize, 1e9f, 0.0f, spec.brand.c_str()).x + 10.0f * s;
     if (!spec.model.empty()) {
         draw->AddText(ImVec2(x, text_y), t.label, spec.model.c_str());
         x += ImGui::CalcTextSize(spec.model.c_str()).x + 14.0f * s;

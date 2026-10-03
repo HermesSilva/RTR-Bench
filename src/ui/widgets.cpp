@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "ui/widgets.h"
 
+#include <cfloat>
+#include <cmath>
+
+#include "ui/fonts.h"
 #include "ui/theme.h"
 
 namespace ui {
@@ -111,6 +115,85 @@ bool jack(const char *id, ImVec2 centre, float radius, const JackLook &look, flo
     ImVec2 ts = ImGui::CalcTextSize(look.name);
     draw->AddText(ImVec2(centre.x - ts.x * 0.5f, centre.y + radius + 4.0f * scale), t.label, look.name);
     return clicked;
+}
+
+int knob(const char *id, ImVec2 centre, float radius, const char *text, float scale, bool *pressed)
+{
+    const Theme &t = current_theme();
+    ImDrawList *draw = ImGui::GetWindowDrawList();
+    ImVec2 hit(radius * 2.0f, radius * 2.0f);
+    ImGui::SetCursorScreenPos(sub(centre, ImVec2(radius, radius)));
+    ImGui::InvisibleButton(id, hit);
+    bool hovered = ImGui::IsItemHovered();
+    bool active = ImGui::IsItemActive();
+    int steps = 0;
+
+    // Remember the angle and the drag accumulator per knob.
+    ImGuiStorage *storage = ImGui::GetStateStorage();
+    ImGuiID key_angle = ImGui::GetID(id);
+    ImGuiID key_drag = key_angle + 1;
+    float angle = storage->GetFloat(key_angle, 0.0f);
+    float drag = storage->GetFloat(key_drag, 0.0f);
+
+    if (hovered) {
+        float wheel = ImGui::GetIO().MouseWheel;
+        if (wheel > 0.0f) {
+            steps += 1;
+        } else if (wheel < 0.0f) {
+            steps -= 1;
+        }
+    }
+    if (active) {
+        drag += -ImGui::GetIO().MouseDelta.y;   // up = clockwise
+        float notch = 10.0f * scale;
+        while (drag >= notch) {
+            steps += 1;
+            drag -= notch;
+        }
+        while (drag <= -notch) {
+            steps -= 1;
+            drag += notch;
+        }
+    } else {
+        drag = 0.0f;
+    }
+    if (pressed) {
+        *pressed = ImGui::IsItemClicked() && ImGui::GetIO().MouseDelta.x == 0.0f && ImGui::GetIO().MouseDelta.y == 0.0f;
+    }
+    angle += static_cast<float>(steps) * 0.35f;
+    storage->SetFloat(key_angle, angle);
+    storage->SetFloat(key_drag, drag);
+
+    // Body: shadow, ring, knurled edge, pointer.
+    draw->AddCircleFilled(add(centre, ImVec2(0, 2.0f * scale)), radius + 2.0f * scale, t.chassis_shadow, 40);
+    draw->AddCircleFilled(centre, radius, t.knob_ring, 40);
+    draw->AddCircleFilled(centre, radius - 3.0f * scale, hovered || active ? t.key_hover : t.knob, 40);
+    for (int i = 0; i < 24; i++) {
+        float a = angle + static_cast<float>(i) * (6.2831853f / 24.0f);
+        ImVec2 p0(centre.x + std::cos(a) * (radius - 1.0f * scale), centre.y + std::sin(a) * (radius - 1.0f * scale));
+        ImVec2 p1(centre.x + std::cos(a) * (radius - 4.0f * scale), centre.y + std::sin(a) * (radius - 4.0f * scale));
+        draw->AddLine(p0, p1, t.chassis_shadow, 1.0f * scale);
+    }
+    ImVec2 tip(centre.x + std::cos(angle - 1.5707963f) * (radius - 6.0f * scale),
+               centre.y + std::sin(angle - 1.5707963f) * (radius - 6.0f * scale));
+    draw->AddCircleFilled(tip, 2.5f * scale, t.knob_mark, 12);
+    if (text && text[0]) {
+        ImVec2 ts = ImGui::CalcTextSize(text);
+        draw->AddText(ImVec2(centre.x - ts.x * 0.5f, centre.y + radius + 5.0f * scale), t.label, text);
+    }
+    return steps;
+}
+
+void readout(ImVec2 min, ImVec2 max, const char *text, uint32_t colour, float scale)
+{
+    const Theme &t = current_theme();
+    ImDrawList *draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(min, max, t.screen, 4.0f * scale);
+    draw->AddRect(min, max, t.chassis_shadow, 4.0f * scale, 0, 1.0f * scale);
+    ImFont *mono = fonts().mono;
+    ImVec2 ts = mono->CalcTextSizeA(mono->FontSize, FLT_MAX, 0.0f, text);
+    draw->AddText(mono, mono->FontSize,
+                  ImVec2(min.x + (max.x - min.x - ts.x) * 0.5f, min.y + (max.y - min.y - ts.y) * 0.5f), colour, text);
 }
 
 void group_frame(ImVec2 min, ImVec2 max, const char *title, float scale)

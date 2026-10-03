@@ -6,11 +6,16 @@
 #include <vector>
 
 #include <GLFW/glfw3.h>
+#ifdef _WIN32
+#define GLFW_EXPOSE_NATIVE_WIN32
+#include <GLFW/glfw3native.h>
+#endif
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_opengl3.h>
 #include <implot.h>
 
+#include "ui/fonts.h"
 #include "ui/png.h"
 
 namespace ui {
@@ -89,11 +94,24 @@ Window::Window(const WindowSpec &spec)
     io.LogFilename = nullptr;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 
+#ifdef _WIN32
+    // The ImGui GLFW backend hooks the WndProc of the window to tell pen and
+    // touch from mouse. The hook reads the *current* ImGui context, which is
+    // wrong as soon as there is more than one window (Windows sends messages
+    // to every window while another is created or destroyed). The bench has
+    // no pen or touch: the hook is undone right after the backend sets it.
+    HWND hwnd = glfwGetWin32Window(window_);
+    LONG_PTR glfw_wndproc = GetWindowLongPtrW(hwnd, GWLP_WNDPROC);
+#endif
     ImGui_ImplGlfw_InitForOpenGL(window_, false);
+#ifdef _WIN32
+    SetWindowLongPtrW(hwnd, GWLP_WNDPROC, glfw_wndproc);
+#endif
     install_callbacks(window_);
     ImGui_ImplOpenGL3_Init("#version 330");
 
     update_scale();
+    fonts_ = load_fonts(scale_);
     glfwShowWindow(window_);
 }
 
@@ -102,12 +120,17 @@ Window::~Window()
     if (!window_) {
         return;
     }
+    // The callbacks must not reach this window any more: destroying it
+    // still sends focus and size events through them.
+    glfwSetWindowUserPointer(window_, nullptr);
     glfwMakeContextCurrent(window_);
     ImGui::SetCurrentContext(imgui_);
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
     ImPlot::DestroyContext();
     ImGui::DestroyContext(imgui_);
+    ImGui::SetCurrentContext(nullptr);
+    imgui_ = nullptr;
     glfwDestroyWindow(window_);
 }
 
@@ -161,6 +184,7 @@ bool Window::frame()
     }
     glfwMakeContextCurrent(window_);
     ImGui::SetCurrentContext(imgui_);
+    set_fonts(fonts_);
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplGlfw_NewFrame();

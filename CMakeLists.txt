@@ -73,6 +73,8 @@ find_package(OpenGL REQUIRED)
 add_library(rtr-core STATIC
     src/core/scope_protocol.cpp
     src/core/port_state.cpp
+    src/core/trace.cpp
+    src/core/scope_engine.cpp
     src/probes/tcp_client.cpp
     src/probes/emulator_probe.cpp)
 target_include_directories(rtr-core PUBLIC src)
@@ -84,10 +86,28 @@ endif()
 find_package(Threads REQUIRED)
 target_link_libraries(rtr-core PUBLIC Threads::Threads)
 
+# Fonts embedded in the executable (see cmake/embed.cmake).
+set(RTR_FONTS Inter-Regular Inter-SemiBold JetBrainsMono-Regular DSEG7Classic-Regular)
+set(RTR_FONT_SOURCES)
+foreach(font ${RTR_FONTS})
+    string(REPLACE "-" "_" symbol "font_${font}")
+    set(input ${CMAKE_SOURCE_DIR}/resources/fonts/${font}.ttf)
+    set(output ${CMAKE_BINARY_DIR}/generated/${font}.cpp)
+    add_custom_command(OUTPUT ${output}
+        COMMAND ${CMAKE_COMMAND} -DINPUT=${input} -DOUTPUT=${output} -DSYMBOL=${symbol}
+                -P ${CMAKE_SOURCE_DIR}/cmake/embed.cmake
+        DEPENDS ${input} ${CMAKE_SOURCE_DIR}/cmake/embed.cmake
+        COMMENT "Embedding ${font}.ttf")
+    list(APPEND RTR_FONT_SOURCES ${output})
+endforeach()
+
 add_executable(rtr-bench
+    ${RTR_FONT_SOURCES}
+    src/ui/fonts.cpp
     src/app/main.cpp
     src/app/app.cpp
     src/app/rack.cpp
+    src/instruments/scope/scope.cpp
     src/ui/theme.cpp
     src/ui/window.cpp
     src/ui/chassis.cpp

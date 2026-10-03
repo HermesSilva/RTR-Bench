@@ -8,6 +8,8 @@
 #include <memory>
 #include <string>
 
+#include "ui/fonts.h"
+
 struct GLFWwindow;
 struct ImGuiContext;
 
@@ -77,6 +79,7 @@ private:
     double grab_y_ = 0.0;
     std::string capture_path_;
     bool captured_ = false;
+    Fonts fonts_;
 };
 
 // Process-wide GLFW state.

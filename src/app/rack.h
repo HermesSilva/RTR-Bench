@@ -19,7 +19,6 @@ public:
 
 private:
     App &app_;
-    int selected_port_ = -1;   // jack clicked, start of a wire (stage 3)
 };
 
 }  // namespace app

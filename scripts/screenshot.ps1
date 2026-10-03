@@ -1,13 +1,17 @@
-# RTR-Bench - writes a PNG of the rack, with alpha, for the README and the docs.
+# RTR-Bench - writes a PNG of a window, with alpha, for the README and the docs.
 #
-#   scripts\screenshot.ps1 -Out docs\screenshots\rack-dark.png [-Delay 6]
+#   scripts\screenshot.ps1 -Window rack  -Out docs\screenshots\rack-dark.png [-Delay 6]
+#   scripts\screenshot.ps1 -Window scope -Out docs\screenshots\scope-dark.png -Wire scope:1=4,scope:2=5
 #
 # Runs the bench in its screenshot mode: it comes up, connects to the probe,
-# and after the delay saves its own framebuffer (so the transparent margins
-# stay transparent, whatever is behind the window) and quits. The emulator
-# should be running with the probe for the ports to show activity.
+# opens the instrument and the wires asked for, and after the delay saves its
+# own framebuffer (so the transparent margins stay transparent, whatever is
+# behind the window) and quits. The emulator should be running with the
+# probe for the ports to show activity.
 param(
+    [string]$Window = 'rack',
     [string]$Out = "docs\screenshots\rack-dark.png",
+    [string]$Wire = '',
     [double]$Delay = 6
 )
 
@@ -23,8 +27,12 @@ if (-not [System.IO.Path]::IsPathRooted($Out)) {
 $dir = Split-Path -Parent $Out
 if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir | Out-Null }
 
+$argv = @('--screenshot', "`"$Window=$Out`"", '--delay', "$Delay")
+if ($Window -ne 'rack') { $argv += @('--open', $Window) }
+foreach ($w in ($Wire -split ',' | Where-Object { $_ })) { $argv += @('--wire', $w) }
+
 # A GUI executable returns at once: wait for it explicitly.
-$p = Start-Process -FilePath $exe -ArgumentList @('--screenshot', "`"$Out`"", '--delay', "$Delay") -PassThru -Wait
+$p = Start-Process -FilePath $exe -ArgumentList $argv -PassThru -Wait
 if ($p.ExitCode -ne 0 -or -not (Test-Path $Out)) {
     Write-Error "Screenshot failed (exit $($p.ExitCode))."
 }

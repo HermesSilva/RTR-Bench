@@ -4,38 +4,99 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <string>
 
 #include "app/app.h"
 
 namespace {
 
+const char *usage =
+    "usage: rtr-bench [options]\n"
+    "  --open NAME              open an instrument at start (scope)\n"
+    "  --wire NAME:CH=PORT      wire channel CH of an instrument to a port (--wire scope:1=18)\n"
+    "  --screenshot NAME=FILE   write a PNG of a window (rack, scope) with alpha, then quit\n"
+    "  --delay SECONDS          wait before the screenshots (default 5)\n"
+    "  --version\n";
+
+bool parse_instrument(const std::string &name, app::Instrument &kind)
+{
+    if (name == "scope") {
+        kind = app::Instrument::Scope;
+        return true;
+    }
+    return false;
+}
+
 int run(int argc, char **argv)
 {
     app::App app;
-    const char *screenshot = nullptr;
-    double delay = 5.0;
     for (int i = 1; i < argc; i++) {
-        if (std::strcmp(argv[i], "--version") == 0) {
+        std::string arg = argv[i];
+        std::string value = i + 1 < argc ? argv[i + 1] : "";
+        if (arg == "--version") {
             std::printf("rtr-bench %s\n", RTR_BENCH_VERSION);
             return 0;
         }
-        if (std::strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
-            screenshot = argv[++i];
-        } else if (std::strcmp(argv[i], "--delay") == 0 && i + 1 < argc) {
+        if (arg == "--help") {
+            std::printf("%s", usage);
+            return 0;
+        }
+        if (value.empty()) {
+            std::printf("%s", usage);
+            return 2;
+        }
+        i++;
+        if (arg == "--open") {
+            app::Instrument kind;
+            if (!parse_instrument(value, kind)) {
+                std::printf("rtr-bench: unknown instrument '%s'\n", value.c_str());
+                return 2;
+            }
+            app.open_at_start(kind);
+        } else if (arg == "--wire") {
+            size_t colon = value.find(':');
+            size_t eq = value.find('=');
+            app::Instrument kind;
+            if (colon == std::string::npos || eq == std::string::npos || eq < colon ||
+                !parse_instrument(value.substr(0, colon), kind)) {
+                std::printf("rtr-bench: bad --wire '%s'\n", value.c_str());
+                return 2;
+            }
+            std::string ch_text = value.substr(colon + 1, eq - colon - 1);
+            std::string port_text = value.substr(eq + 1);
+            char *ch_end = nullptr;
+            char *port_end = nullptr;
+            long channel = std::strtol(ch_text.c_str(), &ch_end, 10);
+            long port = std::strtol(port_text.c_str(), &port_end, 10);
+            if (ch_text.empty() || port_text.empty() || *ch_end != '\0' || *port_end != '\0' || channel < 1 ||
+                port < 0 || port > 255) {
+                std::printf("rtr-bench: bad --wire '%s'\n", value.c_str());
+                return 2;
+            }
+            app.wire_at_start(kind, static_cast<int>(channel) - 1, static_cast<int>(port));
+        } else if (arg == "--screenshot") {
+            size_t eq = value.find('=');
+            if (eq == std::string::npos) {
+                std::printf("rtr-bench: bad --screenshot '%s'\n", value.c_str());
+                return 2;
+            }
+            std::string window = value.substr(0, eq);
+            for (char &c : window) {
+                c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+            }
+            app.screenshot(window == "RACK" ? "rack" : window, value.substr(eq + 1));
+        } else if (arg == "--delay") {
             char *end = nullptr;
-            delay = std::strtod(argv[++i], &end);
-            if (end == argv[i] || delay < 0.0) {
+            double delay = std::strtod(value.c_str(), &end);
+            if (end == value.c_str() || delay < 0.0) {
                 std::printf("rtr-bench: bad --delay value\n");
                 return 2;
             }
+            app.set_screenshot_delay(delay);
         } else {
-            std::printf("usage: rtr-bench [--version] [--screenshot FILE.png [--delay SECONDS]]\n"
-                        "  --screenshot  writes a PNG of the rack (with alpha) after the delay and quits\n");
-            return std::strcmp(argv[i], "--help") == 0 ? 0 : 2;
+            std::printf("%s", usage);
+            return 2;
         }
-    }
-    if (screenshot) {
-        app.screenshot(screenshot, delay);
     }
     return app.run();
 }

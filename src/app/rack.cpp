@@ -187,13 +187,13 @@ void Rack::draw(ui::Window &window)
         look.active = ps.recent > 0;
         look.input = ps.direction == core::PortDirection::Input;
         look.output = ps.direction == core::PortDirection::Output;
-        look.wire_colour = 0;
+        look.wire_colour = app_.port_wire_colour(static_cast<int>(i));
         char id[24];
         std::snprintf(id, sizeof(id), "##jack%zu", i);
         if (ui::jack(id, centre, radius, look, s)) {
-            selected_port_ = selected_port_ == static_cast<int>(i) ? -1 : static_cast<int>(i);
+            app_.select_port(static_cast<int>(i));
         }
-        if (selected_port_ == static_cast<int>(i)) {
+        if (app_.selected_port() == static_cast<int>(i)) {
             draw->AddCircle(centre, radius + 3.0f * s, t.led_warn, 24, 2.0f * s);
         }
         if (ImGui::IsItemHovered()) {
@@ -201,6 +201,15 @@ void Rack::draw(ui::Window &window)
             ImGui::Text("%s  pin %s", ports[i].name.c_str(), ports[i].pin.c_str());
             ImGui::Text("%s, %llu transitions", direction_text(ps.direction),
                         static_cast<unsigned long long>(ps.transitions));
+            Instrument wired;
+            int channel = 0;
+            if (app_.port_wired_to(static_cast<int>(i), wired, channel)) {
+                ImGui::Text("wired to %s CH%d", instrument_name(wired), channel + 1);
+            } else if (app_.selected_port() == static_cast<int>(i)) {
+                ImGui::Text("selected: press a channel key on an instrument");
+            } else {
+                ImGui::Text("click to start a wire");
+            }
             ImGui::EndTooltip();
         }
     }

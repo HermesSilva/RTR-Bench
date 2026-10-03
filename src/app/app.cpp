@@ -4,12 +4,27 @@
 #include <algorithm>
 #include <cstdio>
 
-#include <imgui.h>
-
-#include "ui/chassis.h"
+#include "instruments/scope/scope.h"
 #include "ui/theme.h"
 
 namespace app {
+
+const char *instrument_name(Instrument kind)
+{
+    switch (kind) {
+    case Instrument::Scope:
+        return "SCOPE";
+    case Instrument::Logic:
+        return "LOGIC";
+    case Instrument::Generator:
+        return "GEN";
+    case Instrument::Supply:
+        return "PSU";
+    case Instrument::Multimeter:
+        return "DMM";
+    }
+    return "";
+}
 
 App::App()
 {
@@ -34,69 +49,73 @@ void App::open_rack()
     rack_window_->set_draw([this](ui::Window &w) { rack_.draw(w); });
 }
 
+InstrumentBase *App::find_instrument(Instrument kind)
+{
+    for (OpenInstrument &i : instruments_) {
+        if (i.instrument->kind() == kind) {
+            return i.instrument.get();
+        }
+    }
+    return nullptr;
+}
+
 bool App::instrument_open(Instrument kind) const
 {
     for (const OpenInstrument &i : instruments_) {
-        if (i.kind == kind) {
+        if (i.instrument->kind() == kind) {
             return true;
         }
     }
     return false;
 }
 
-// Stage 1: only the oscilloscope opens, with its placeholder screen. The
-// real instruments arrive from stage 2 on.
+// Called from inside a frame (a key on the rack): creating a window there
+// would switch the ImGui context under the drawing code, so it is queued
+// and done between frames.
 void App::open_instrument(Instrument kind)
 {
     for (OpenInstrument &i : instruments_) {
-        if (i.kind == kind) {
+        if (i.instrument->kind() == kind) {
             i.window->raise();
             return;
         }
     }
-    if (kind != Instrument::Scope) {
+    pending_open_.push_back(kind);
+}
+
+void App::open_pending()
+{
+    std::vector<Instrument> pending;
+    pending.swap(pending_open_);
+    for (Instrument kind : pending) {
+        create_instrument(kind);
+    }
+}
+
+void App::create_instrument(Instrument kind)
+{
+    if (instrument_open(kind)) {
         return;
     }
+    std::unique_ptr<InstrumentBase> instrument;
     ui::WindowSpec spec;
-    spec.title = "RTR-Bench Oscilloscope";
-    spec.width = 1120;
-    spec.height = 640;
+    switch (kind) {
+    case Instrument::Scope:
+        instrument = std::make_unique<Scope>(*this);
+        spec.title = "RTR-Bench Oscilloscope";
+        spec.width = 1180;
+        spec.height = 640;
+        break;
+    default:
+        return;  // not built yet
+    }
     auto window = std::make_unique<ui::Window>(spec);
     if (!window->valid()) {
         return;
     }
-    window->set_draw([](ui::Window &w) {
-        ui::ChassisSpec chassis;
-        chassis.model = "DSO-1";
-        chassis.title = "Digital Oscilloscope";
-        ui::ChassisFrame frame = ui::begin_chassis(w, chassis);
-
-        const ui::Theme &t = ui::current_theme();
-        const float s = w.scale();
-        ImVec2 screen_min = frame.panel_min;
-        ImVec2 screen_max(frame.panel_min.x + (frame.panel_max.x - frame.panel_min.x) * 0.68f,
-                          frame.panel_max.y);
-        frame.draw->AddRectFilled(screen_min, screen_max, t.screen_bezel, 10.0f * s);
-        ImVec2 inner_min = ImVec2(screen_min.x + 10.0f * s, screen_min.y + 10.0f * s);
-        ImVec2 inner_max = ImVec2(screen_max.x - 10.0f * s, screen_max.y - 10.0f * s);
-        frame.draw->AddRectFilled(inner_min, inner_max, t.screen, 4.0f * s);
-        const int cols = 10;
-        const int rows = 8;
-        for (int i = 1; i < cols; i++) {
-            float x = inner_min.x + (inner_max.x - inner_min.x) * static_cast<float>(i) / cols;
-            frame.draw->AddLine(ImVec2(x, inner_min.y), ImVec2(x, inner_max.y),
-                                i == cols / 2 ? t.graticule_axis : t.graticule, 1.0f);
-        }
-        for (int i = 1; i < rows; i++) {
-            float y = inner_min.y + (inner_max.y - inner_min.y) * static_cast<float>(i) / rows;
-            frame.draw->AddLine(ImVec2(inner_min.x, y), ImVec2(inner_max.x, y),
-                                i == rows / 2 ? t.graticule_axis : t.graticule, 1.0f);
-        }
-        frame.draw->AddText(ImVec2(inner_min.x + 12.0f * s, inner_min.y + 10.0f * s), t.readout_dim,
-                            "stage 2: the real screen");
-        ui::end_chassis();
-    });
-    instruments_.push_back(OpenInstrument{kind, std::move(window)});
+    InstrumentBase *raw = instrument.get();
+    window->set_draw([raw](ui::Window &w) { raw->draw(w); });
+    instruments_.push_back(OpenInstrument{std::move(instrument), std::move(window)});
 }
 
 void App::set_theme(ui::ThemeKind kind)
@@ -104,19 +123,115 @@ void App::set_theme(ui::ThemeKind kind)
     ui::set_theme(kind);
 }
 
-void App::screenshot(const std::string &path, double delay_seconds)
+void App::screenshot(const std::string &window_name, const std::string &path)
 {
-    screenshot_path_ = path;
-    screenshot_delay_ = delay_seconds;
+    screenshots_.push_back(ScreenshotTarget{window_name, path});
 }
 
-// Once per frame: drain the probe into the port state and keep the rate.
+// ---- wiring ---------------------------------------------------------------
+
+int App::wired_port(Instrument instrument, int channel) const
+{
+    for (const Wire &w : wires_) {
+        if (w.instrument == instrument && w.channel == channel) {
+            return w.port;
+        }
+    }
+    return -1;
+}
+
+bool App::port_wired_to(int port, Instrument &instrument, int &channel) const
+{
+    for (const Wire &w : wires_) {
+        if (w.port == port) {
+            instrument = w.instrument;
+            channel = w.channel;
+            return true;
+        }
+    }
+    return false;
+}
+
+uint32_t App::port_wire_colour(int port) const
+{
+    Instrument instrument;
+    int channel = 0;
+    if (!port_wired_to(port, instrument, channel)) {
+        return 0;
+    }
+    return ui::channel_colour(channel);
+}
+
+void App::make_wire(Instrument instrument, int channel, int port)
+{
+    unwire(instrument, channel);
+    wires_.push_back(Wire{instrument, channel, port});
+    selected_port_ = -1;
+    offered_ = false;
+    if (InstrumentBase *i = find_instrument(instrument)) {
+        i->wiring_changed();
+    }
+}
+
+void App::unwire(Instrument instrument, int channel)
+{
+    bool removed = false;
+    for (size_t i = 0; i < wires_.size(); i++) {
+        if (wires_[i].instrument == instrument && wires_[i].channel == channel) {
+            wires_.erase(wires_.begin() + static_cast<std::ptrdiff_t>(i));
+            removed = true;
+            break;
+        }
+    }
+    if (removed) {
+        if (InstrumentBase *i = find_instrument(instrument)) {
+            i->wiring_changed();
+        }
+    }
+}
+
+void App::select_port(int port)
+{
+    if (offered_) {
+        make_wire(offered_instrument_, offered_channel_, port);
+        return;
+    }
+    selected_port_ = selected_port_ == port ? -1 : port;
+}
+
+void App::offer_channel(Instrument instrument, int channel)
+{
+    if (selected_port_ >= 0) {
+        make_wire(instrument, channel, selected_port_);
+        return;
+    }
+    if (offered_ && offered_instrument_ == instrument && offered_channel_ == channel) {
+        offered_ = false;
+        return;
+    }
+    offered_ = true;
+    offered_instrument_ = instrument;
+    offered_channel_ = channel;
+}
+
+bool App::channel_offered(Instrument instrument, int channel) const
+{
+    return offered_ && offered_instrument_ == instrument && offered_channel_ == channel;
+}
+
+// ---- frame loop -----------------------------------------------------------
+
+// Once per frame: drain the probe into the port state and the instruments,
+// and keep the event rate.
 void App::pump_probe()
 {
     events_.clear();
     probe_->poll(events_);
     for (const core::DigitalEvent &e : events_) {
         ports_.apply(e);
+    }
+    for (OpenInstrument &i : instruments_) {
+        i.instrument->feed(events_);
     }
     functions_.clear();
     probe_->poll_functions(functions_);
@@ -148,19 +263,48 @@ int App::run()
         return 1;
     }
     probe_->connect();
+    for (Instrument kind : open_at_start_) {
+        create_instrument(kind);
+    }
+    for (const Wire &w : wires_at_start_) {
+        make_wire(w.instrument, w.channel, w.port);
+    }
 
     auto start = std::chrono::steady_clock::now();
     bool capture_asked = false;
     while (rack_window_ && !rack_window_->close_requested()) {
         ui::platform_poll();
+        open_pending();
         pump_probe();
-        if (!screenshot_path_.empty()) {
+        if (!screenshots_.empty()) {
             double elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
             if (!capture_asked && elapsed >= screenshot_delay_) {
-                rack_window_->capture(screenshot_path_);
+                for (const ScreenshotTarget &target : screenshots_) {
+                    if (target.window == "rack") {
+                        rack_window_->capture(target.path);
+                    }
+                    for (OpenInstrument &i : instruments_) {
+                        if (target.window == instrument_name(i.instrument->kind())) {
+                            i.window->capture(target.path);
+                        }
+                    }
+                }
                 capture_asked = true;
-            } else if (rack_window_->captured()) {
-                rack_window_->request_close();
+            } else if (capture_asked) {
+                bool all = true;
+                for (const ScreenshotTarget &target : screenshots_) {
+                    if (target.window == "rack" && !rack_window_->captured()) {
+                        all = false;
+                    }
+                    for (OpenInstrument &i : instruments_) {
+                        if (target.window == instrument_name(i.instrument->kind()) && !i.window->captured()) {
+                            all = false;
+                        }
+                    }
+                }
+                if (all) {
+                    rack_window_->request_close();
+                }
             }
         }
         rack_window_->frame();

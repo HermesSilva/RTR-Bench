@@ -37,4 +37,13 @@ bool jack(const char *id, ImVec2 centre, float radius, const JackLook &look, flo
 // on a real front panel ("VERTICAL", "TRIGGER").
 void group_frame(ImVec2 min, ImVec2 max, const char *title, float scale);
 
+// A rotary knob without end stops: returns the number of steps turned this
+// frame (positive clockwise) from the mouse wheel or a vertical drag; a
+// click reports `pressed` (the push function of the knob). `label` goes
+// under it.
+int knob(const char *id, ImVec2 centre, float radius, const char *label, float scale, bool *pressed = nullptr);
+
+// A readout box on the panel: a dark window with text in the mono font.
+void readout(ImVec2 min, ImVec2 max, const char *text, uint32_t colour, float scale);
+
 }  // namespace ui

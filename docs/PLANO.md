@@ -186,6 +186,14 @@ automação que rodam nele:
   leituras), e "snapshot" como referência que fica desenhada por trás.
 - RO10. Sob o emulador: a escala de tempo é a do relógio virtual; a tela avisa
   "virtual time" na barra de estado.
+- RO11. **Canais MATH** (pedido em 2026-10-03): traços resultantes de uma
+  fórmula sobre **2 ou 3 canais de entrada**, escolhida numa lista em combo
+  elegante (estilo "Math" dos Rigol). Digitais: NOT, AND, OR, XOR, NAND, NOR,
+  XNOR, A·B·C, A+B+C, A⊕B⊕C, maioria(A,B,C), latch SR (A set, B reset),
+  A gated by C (A·C), diferença de fase A→B como pulso; analógicas (M2k): A+B,
+  A−B, A×B, A/B, média(A,B,C), FFT(A). Até 2 canais MATH, cada um com cor
+  própria, medições e cursores como os demais; a fórmula e as entradas ficam
+  na barra de leituras ("M1 = CH1 AND CH2").
 
 ### 3.7 Analisador lógico (RL)
 
