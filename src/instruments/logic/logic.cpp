@@ -167,6 +167,7 @@ void LogicAnalyzer::draw(ui::Window &window)
     ImVec2 screen_max(frame.panel_max.x - controls_w * s - 10.0f * s, frame.panel_max.y);
     draw_screen(window, frame.panel_min, screen_max);
     draw_controls(window, ImVec2(screen_max.x + 10.0f * s, frame.panel_min.y), frame.panel_max);
+    app_.grab_near(window);
     ui::end_chassis();
 }
 

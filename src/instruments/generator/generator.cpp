@@ -319,7 +319,13 @@ void Generator::draw_module(ui::Window &window, int index, ImVec2 min, ImVec2 ma
     look.active = false;
     look.input = false;
     look.output = true;
-    look.wire_colour = o.port >= 0 ? colour : 0;
+    // The output is also a virtual port other instruments may be wired to.
+    core::WaveSpec published = o.spec;
+    published.freq_hz = generator_frequency_steps()[static_cast<size_t>(o.freq_step)];
+    published.mod_freq_hz = generator_frequency_steps()[static_cast<size_t>(o.mod_step)];
+    published.sweep_end_hz = generator_frequency_steps()[static_cast<size_t>(o.sweep_step)];
+    int vport = app_.publish_output(this->id(), index, published, o.on);
+    look.wire_colour = o.port >= 0 ? colour : app_.port_wire_colour(vport);
     std::snprintf(id, sizeof(id), "##jack%d", index);
     if (ui::jack(id, jack_c, 8.0f * s, look, s)) {
         app_.offer_channel(this->id(), index);
@@ -338,7 +344,7 @@ void Generator::draw_module(ui::Window &window, int index, ImVec2 min, ImVec2 ma
     draw_waveform_combo(o, index, ImVec2(x, y), ImVec2(combo_w, key_h), s);
     x += combo_w + gap;
     std::snprintf(id, sizeof(id), "##out%d", index);
-    bool usable = o.port >= 0 && drivable && can_drive;
+    bool usable = (o.port >= 0 && drivable && can_drive) || app_.port_wire_colour(vport) != 0;
     (void)analog_port;
     if (ui::key(id, o.on ? "ON" : "OUTPUT", ImVec2(x, y), ImVec2(out_w, key_h), o.on, t.led_run, s, usable)) {
         o.on = !o.on;
@@ -507,6 +513,7 @@ void Generator::draw(ui::Window &window)
             apply(*op);
         }
     }
+    app_.grab_near(window);
     ui::end_chassis();
 }
 

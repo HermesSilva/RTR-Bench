@@ -415,6 +415,7 @@ void Multimeter::draw(ui::Window &window)
         }
     }
     (void)inner_w;
+    app_.grab_near(window);
     ui::end_chassis();
 }
 

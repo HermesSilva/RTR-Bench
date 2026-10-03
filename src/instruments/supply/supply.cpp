@@ -156,7 +156,10 @@ void Supply::draw(ui::Window &window)
         look.active = false;
         look.input = false;
         look.output = true;
-        look.wire_colour = o.port >= 0 ? colour : 0;
+        core::WaveSpec published;
+        published.kind = o.volts >= logic_threshold ? core::Waveform::High : core::Waveform::Low;
+        int vport = app_.publish_output(this->id(), i, published, o.on);
+        look.wire_colour = o.port >= 0 ? colour : app_.port_wire_colour(vport);
         std::snprintf(id, sizeof(id), "##jack%d", i);
         if (ui::jack(id, jack_c, 8.0f * s, look, s)) {
             app_.offer_channel(this->id(), i);
@@ -215,7 +218,7 @@ void Supply::draw(ui::Window &window)
                       t.label_dim, set_text);
         std::snprintf(id, sizeof(id), "##out%d", i);
         if (ui::key(id, o.on ? "ON" : "OUTPUT", ImVec2(rx, cy - key_h * 0.5f), ImVec2(74.0f * s, key_h), o.on, t.led_run, s,
-                    o.port >= 0 && drivable && can_drive)) {
+                    (o.port >= 0 && drivable && can_drive) || app_.port_wire_colour(vport) != 0)) {
             o.on = !o.on;
             o.dirty = true;
         }
@@ -231,6 +234,7 @@ void Supply::draw(ui::Window &window)
             apply(*op);
         }
     }
+    app_.grab_near(window);
     ui::end_chassis();
 }
 

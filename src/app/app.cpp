@@ -3,7 +3,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
+#include <random>
 
 #include <imgui.h>
 
@@ -85,6 +87,7 @@ std::string command_line_name(Instrument kind)
 App::App()
 {
     last_rate_time_ = std::chrono::steady_clock::now();
+    virtual_start_ = last_rate_time_;
 }
 
 App::~App() = default;
@@ -127,6 +130,10 @@ void App::switch_probe(ProbeKind kind)
 
 const core::PortInfo *App::port_info(int port) const
 {
+    if (is_virtual_port(port)) {
+        size_t slot = static_cast<size_t>(port - virtual_port_base);
+        return slot < virtual_ports_.size() ? &virtual_ports_[slot].info : nullptr;
+    }
     const std::vector<core::PortInfo> &ports = probe_->ports();
     if (port < 0 || static_cast<size_t>(port) >= ports.size()) {
         return nullptr;
@@ -139,7 +146,7 @@ void App::open_rack()
     ui::WindowSpec spec;
     spec.title = "RTR-Bench Rack";
     spec.width = 940;
-    spec.height = 200;
+    spec.height = 232;
     spec.x = rack_x_;
     spec.y = rack_y_;
     for (const Placement &p : placements_) {
@@ -329,7 +336,13 @@ uint32_t App::port_wire_colour(int port) const
 
 void App::make_wire(InstrumentId instrument, int channel, int port)
 {
-    if (port < 0 || static_cast<size_t>(port) >= probe_->ports().size() || channel < 0) {
+    bool real = port >= 0 && static_cast<size_t>(port) < probe_->ports().size();
+    bool virt = is_virtual_port(port) && port_info(port) != nullptr;
+    if ((!real && !virt) || channel < 0) {
+        return;
+    }
+    // Pertinent only: a virtual port (an output) feeds an input instrument.
+    if (virt && is_output_instrument(instrument.kind)) {
         return;
     }
     unwire(instrument, channel);
@@ -392,6 +405,24 @@ void App::offer_channel(InstrumentId instrument, int channel)
         selected_port_ = port;
         return;
     }
+    // Two instrument ends: an output into an input makes a wire through the
+    // output's virtual port; any other pair just moves the offer.
+    if (offered_ && offered_instrument_ != instrument) {
+        bool this_out = is_output_instrument(instrument.kind);
+        bool that_out = is_output_instrument(offered_instrument_.kind);
+        if (this_out != that_out) {
+            InstrumentId out = this_out ? instrument : offered_instrument_;
+            int out_channel = this_out ? channel : offered_channel_;
+            InstrumentId in = this_out ? offered_instrument_ : instrument;
+            int in_channel = this_out ? offered_channel_ : channel;
+            for (size_t i = 0; i < virtual_ports_.size(); i++) {
+                if (virtual_ports_[i].output == out && virtual_ports_[i].channel == out_channel) {
+                    make_wire(in, in_channel, virtual_port_base + static_cast<int>(i));
+                    return;
+                }
+            }
+        }
+    }
     if (offered_ && offered_instrument_ == instrument && offered_channel_ == channel) {
         offered_ = false;
         return;
@@ -410,6 +441,252 @@ void App::cancel_wiring()
 {
     selected_port_ = -1;
     offered_ = false;
+}
+
+// ---- virtual ports: instrument to instrument -----------------------------
+
+App::VirtualPort *App::virtual_port(int port)
+{
+    if (!is_virtual_port(port)) {
+        return nullptr;
+    }
+    size_t slot = static_cast<size_t>(port - virtual_port_base);
+    return slot < virtual_ports_.size() ? &virtual_ports_[slot] : nullptr;
+}
+
+int App::publish_output(InstrumentId instrument, int channel, const core::WaveSpec &spec, bool on)
+{
+    for (size_t i = 0; i < virtual_ports_.size(); i++) {
+        VirtualPort &v = virtual_ports_[i];
+        if (v.output == instrument && v.channel == channel) {
+            bool kind_changed = v.spec.kind != spec.kind || (v.on != on);
+            v.spec = spec;
+            v.on = on;
+            v.seen = true;
+            v.info.analog = core::waveform_is_analog(spec.kind);
+            v.info.digital = !v.info.analog;
+            if (kind_changed) {
+                v.phase = 0.0;
+                v.edge_ns = virtual_clock_ns_;
+            }
+            return virtual_port_base + static_cast<int>(i);
+        }
+    }
+    VirtualPort v;
+    v.output = instrument;
+    v.channel = channel;
+    v.spec = spec;
+    v.on = on;
+    v.seen = true;
+    v.edge_ns = virtual_clock_ns_;
+    v.info.index = virtual_port_base + static_cast<int>(virtual_ports_.size());
+    v.info.name = instrument_label(instrument) + " OUT" + std::to_string(channel + 1);
+    v.info.analog = core::waveform_is_analog(spec.kind);
+    v.info.digital = !v.info.analog;
+    v.info.drivable = false;
+    virtual_ports_.push_back(v);
+    return v.info.index;
+}
+
+// Generates the events of the virtual ports from the last frame to now, on
+// the wall clock, into the frame's event and sample lists.
+void App::pump_virtual_ports()
+{
+    static thread_local std::mt19937 rng(std::random_device{}());
+    std::uniform_real_distribution<double> noise(-1.0, 1.0);
+    int64_t now = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - virtual_start_).count();
+    int64_t from = virtual_clock_ns_;
+    virtual_clock_ns_ = now;
+    // Saved wires to an output get made as soon as it has been published.
+    for (size_t p = 0; p < pending_virtual_wires_.size();) {
+        const PendingVirtualWire &w = pending_virtual_wires_[p];
+        bool done = false;
+        for (size_t i = 0; i < virtual_ports_.size(); i++) {
+            if (virtual_ports_[i].output == w.output && virtual_ports_[i].channel == w.output_channel) {
+                make_wire(w.input, w.channel, virtual_port_base + static_cast<int>(i));
+                done = true;
+            }
+        }
+        if (done) {
+            pending_virtual_wires_.erase(pending_virtual_wires_.begin() + static_cast<std::ptrdiff_t>(p));
+        } else {
+            p++;
+        }
+    }
+    for (size_t i = 0; i < virtual_ports_.size(); i++) {
+        VirtualPort &v = virtual_ports_[i];
+        uint16_t port = static_cast<uint16_t>(0);
+        (void)port;
+        int index = virtual_port_base + static_cast<int>(i);
+        bool wired = false;
+        for (const Wire &w : wires_) {
+            wired = wired || w.port == index;
+        }
+        if (!wired || !v.seen) {
+            v.seen = false;
+            continue;
+        }
+        v.seen = false;
+        const core::WaveSpec &s = v.spec;
+        core::Waveform kind = v.on ? s.kind : core::Waveform::Off;
+        if (core::waveform_is_analog(kind)) {
+            // 100 kS/s is plenty for the frequencies the knobs reach on screen.
+            const int64_t dt = 10000;
+            int64_t first = (from / dt + 1) * dt;
+            if (first > now) {
+                continue;
+            }
+            core::AnalogBlock block;
+            block.t0_ns = first;
+            block.dt_ns = dt;
+            block.port = static_cast<uint16_t>(index & 0xFFFF);
+            size_t count = static_cast<size_t>((now - first) / dt + 1);
+            block.volts.resize(count);
+            const double pi = 3.14159265358979323846;
+            for (size_t k = 0; k < count; k++) {
+                double t = static_cast<double>(first + static_cast<int64_t>(k) * dt) / 1e9;
+                double mod = std::sin(2.0 * pi * s.mod_freq_hz * t);
+                double f = kind == core::Waveform::FM ? s.freq_hz * (1.0 + s.mod_depth * mod) : s.freq_hz;
+                double amp = kind == core::Waveform::AM ? s.amplitude_v * (1.0 + s.mod_depth * mod) / (1.0 + s.mod_depth)
+                                                        : s.amplitude_v;
+                v.phase += f * static_cast<double>(dt) / 1e9;
+                v.phase -= std::floor(v.phase);
+                double p = v.phase;
+                if (kind == core::Waveform::PM) {
+                    p += s.mod_depth * 0.5 * mod;
+                    p -= std::floor(p);
+                }
+                double val = 0.0;
+                switch (kind) {
+                case core::Waveform::Sine:
+                case core::Waveform::AM:
+                case core::Waveform::FM:
+                case core::Waveform::PM:
+                    val = amp * std::sin(2.0 * pi * p);
+                    break;
+                case core::Waveform::Triangle:
+                    val = amp * (p < 0.5 ? 4.0 * p - 1.0 : 3.0 - 4.0 * p);
+                    break;
+                case core::Waveform::Sawtooth:
+                    val = amp * (2.0 * p - 1.0);
+                    break;
+                case core::Waveform::RampDown:
+                    val = amp * (1.0 - 2.0 * p);
+                    break;
+                case core::Waveform::Noise:
+                    val = amp * noise(rng);
+                    break;
+                case core::Waveform::Dc:
+                    val = amp;
+                    break;
+                case core::Waveform::PwmMod:
+                    val = p < 0.5 + 0.45 * s.mod_depth * mod ? amp : -amp;
+                    break;
+                default:
+                    break;
+                }
+                block.volts[k] = static_cast<float>(val + s.offset_v);
+            }
+            analog_.push_back(std::move(block));
+            continue;
+        }
+        // Digital: a level, or a pattern on its grid (burst and sweep as the demo probe).
+        auto emit = [&](int64_t at, int level) {
+            if (v.level != level) {
+                v.level = level;
+                events_.push_back(core::DigitalEvent{at, static_cast<uint16_t>(index & 0xFFFF), static_cast<uint8_t>(level),
+                                                     core::DigitalEvent::Transition});
+            }
+        };
+        if (kind == core::Waveform::Off || kind == core::Waveform::Low) {
+            emit(now, 0);
+            continue;
+        }
+        if (kind == core::Waveform::High || kind == core::Waveform::Dc) {
+            emit(now, kind == core::Waveform::Dc ? (s.amplitude_v + s.offset_v > 0.0 ? 1 : 0) : 1);
+            continue;
+        }
+        int64_t period = s.freq_hz > 0.0 ? static_cast<int64_t>(1e9 / s.freq_hz) : 0;
+        if (period <= 0) {
+            continue;
+        }
+        int duty = kind == core::Waveform::Pwm ? s.duty : 50;
+        for (int64_t edge = (from / period) * period; edge <= now + period; edge += period) {
+            int64_t p = period;
+            int64_t high = p * duty / 100;
+            if (kind == core::Waveform::Burst && (edge % 1000000000LL) / period >= s.burst_count) {
+                continue;
+            }
+            if (kind == core::Waveform::Sweep) {
+                double frac = static_cast<double>(edge % 1000000000LL) / 1e9;
+                double f = s.freq_hz + (s.sweep_end_hz - s.freq_hz) * frac;
+                p = static_cast<int64_t>(1e9 / std::max(f, 1.0));
+                high = p / 2;
+            }
+            if (edge > from && edge <= now) {
+                emit(edge, 1);
+            }
+            if (edge + high > from && edge + high <= now) {
+                emit(edge + high, 0);
+            }
+        }
+    }
+}
+
+// A click near a wire end grabs it: the end is unplugged and the cable
+// follows the mouse from its other end.
+void App::grab_near(ui::Window &window)
+{
+    if (!ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsAnyItemHovered() || !ImGui::IsWindowHovered()) {
+        return;
+    }
+    int cx = 0;
+    int cy = 0;
+    if (!ui::platform_cursor(cx, cy)) {
+        return;
+    }
+    (void)window;
+    float mx = static_cast<float>(cx);
+    float my = static_cast<float>(cy);
+    float r2 = grab_radius * grab_radius;
+    for (const Wire &w : wires_) {
+        // The port end.
+        const Anchor *p = nullptr;
+        if (is_virtual_port(w.port)) {
+            if (VirtualPort *v = virtual_port(w.port)) {
+                p = channel_anchor(v->output, v->channel);
+            }
+        } else if (w.port >= 0 && static_cast<size_t>(w.port) < port_anchors_.size()) {
+            p = &port_anchors_[static_cast<size_t>(w.port)];
+        }
+        if (p && p->valid && (p->x - mx) * (p->x - mx) + (p->y - my) * (p->y - my) <= r2) {
+            InstrumentId in = w.instrument;
+            int ch = w.channel;
+            unwire(in, ch);
+            offered_ = true;
+            offered_instrument_ = in;
+            offered_channel_ = ch;
+            selected_port_ = -1;
+            return;
+        }
+        // The channel end.
+        const Anchor *c = channel_anchor(w.instrument, w.channel);
+        if (c && c->valid && (c->x - mx) * (c->x - mx) + (c->y - my) * (c->y - my) <= r2) {
+            int port = w.port;
+            unwire(w.instrument, w.channel);
+            offered_ = false;
+            if (is_virtual_port(port)) {
+                if (VirtualPort *v = virtual_port(port)) {
+                    offered_ = true;
+                    offered_instrument_ = v->output;
+                    offered_channel_ = v->channel;
+                }
+            } else {
+                selected_port_ = port;
+            }
+            return;
+        }
+    }
 }
 
 // ---- wires across the desktop ---------------------------------------------
@@ -539,15 +816,19 @@ void App::update_overlays()
     };
 
     for (const Wire &w : wires_) {
-        if (w.port < 0 || static_cast<size_t>(w.port) >= port_anchors_.size()) {
-            continue;
+        const Anchor *p = nullptr;
+        if (is_virtual_port(w.port)) {
+            if (VirtualPort *v = virtual_port(w.port)) {
+                p = channel_anchor(v->output, v->channel);
+            }
+        } else if (w.port >= 0 && static_cast<size_t>(w.port) < port_anchors_.size()) {
+            p = &port_anchors_[static_cast<size_t>(w.port)];
         }
-        const Anchor &p = port_anchors_[static_cast<size_t>(w.port)];
         const Anchor *c = channel_anchor(w.instrument, w.channel);
-        if (!p.valid || !c || !c->valid) {
+        if (!p || !p->valid || !c || !c->valid) {
             continue;
         }
-        place(p.x, p.y, c->x, c->y, ui::channel_colour(w.channel % ui::channel_count), false);
+        place(p->x, p->y, c->x, c->y, ui::channel_colour(w.channel % ui::channel_count), false);
     }
     int cx = 0;
     int cy = 0;
@@ -612,10 +893,17 @@ void App::load_bench_settings()
         for (const nlohmann::json &w : j["wires"]) {
             Instrument kind;
             if (w.is_object() && instrument_from_name(w.value("instrument", ""), kind)) {
+                InstrumentId in{kind, w.value("instance", 0)};
+                Instrument out_kind;
+                if (w.contains("from") && w["from"].is_object() &&
+                    instrument_from_name(w["from"].value("instrument", ""), out_kind)) {
+                    pending_virtual_wires_.push_back(PendingVirtualWire{
+                        in, w.value("channel", 0), InstrumentId{out_kind, w["from"].value("instance", 0)},
+                        w["from"].value("channel", 0)});
+                    continue;
+                }
                 // Before the command-line wires, so those win on a conflict.
-                wires_at_start_.insert(wires_at_start_.begin(),
-                                       Wire{InstrumentId{kind, w.value("instance", 0)}, w.value("channel", 0),
-                                            w.value("port", -1)});
+                wires_at_start_.insert(wires_at_start_.begin(), Wire{in, w.value("channel", 0), w.value("port", -1)});
             }
         }
     }
@@ -648,10 +936,18 @@ void App::save_bench_settings()
     }
     j["wires"] = nlohmann::json::array();
     for (const Wire &w : wires_) {
-        j["wires"].push_back({{"instrument", instrument_name(w.instrument.kind)},
-                              {"instance", w.instrument.instance},
-                              {"channel", w.channel},
-                              {"port", w.port}});
+        nlohmann::json entry = {{"instrument", instrument_name(w.instrument.kind)},
+                                {"instance", w.instrument.instance},
+                                {"channel", w.channel},
+                                {"port", w.port}};
+        // A wire from an output of another instrument is saved by that output.
+        if (const VirtualPort *v = const_cast<App *>(this)->virtual_port(w.port)) {
+            entry["port"] = -1;
+            entry["from"] = {{"instrument", instrument_name(v->output.kind)},
+                             {"instance", v->output.instance},
+                             {"channel", v->channel}};
+        }
+        j["wires"].push_back(entry);
     }
     save_settings("bench", j);
     last_save_time_ = std::chrono::steady_clock::now();
@@ -762,6 +1058,7 @@ void App::pump_probe()
     }
     analog_.clear();
     probe_->poll_analog(analog_);
+    pump_virtual_ports();   // outputs wired straight into inputs
     for (OpenInstrument &i : instruments_) {
         i.instrument->feed(events_);
         if (!analog_.empty()) {

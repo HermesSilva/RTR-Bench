@@ -108,6 +108,29 @@ int run(int argc, char **argv)
                 return 2;
             }
             app.wire_at_start(kind, static_cast<int>(channel) - 1, static_cast<int>(port));
+        } else if (arg == "--link") {
+            // "--link gen:1=scope:1": output 1 of the generator into channel 1 of the scope.
+            size_t eq = value.find('=');
+            size_t c1 = value.find(':');
+            size_t c2 = eq == std::string::npos ? std::string::npos : value.find(':', eq);
+            app::Instrument out;
+            app::Instrument in;
+            if (eq == std::string::npos || c1 == std::string::npos || c2 == std::string::npos || c1 > eq ||
+                !parse_instrument(value.substr(0, c1), out) || !parse_instrument(value.substr(eq + 1, c2 - eq - 1), in)) {
+                std::printf("rtr-bench: bad --link '%s' (use OUT:N=IN:M)\n", value.c_str());
+                return 2;
+            }
+            char *e1 = nullptr;
+            char *e2 = nullptr;
+            std::string n1 = value.substr(c1 + 1, eq - c1 - 1);
+            std::string n2 = value.substr(c2 + 1);
+            long o = std::strtol(n1.c_str(), &e1, 10);
+            long i2 = std::strtol(n2.c_str(), &e2, 10);
+            if (n1.empty() || n2.empty() || *e1 != '\0' || *e2 != '\0' || o < 1 || i2 < 1) {
+                std::printf("rtr-bench: bad --link '%s' (use OUT:N=IN:M)\n", value.c_str());
+                return 2;
+            }
+            app.link_at_start(out, static_cast<int>(o) - 1, in, static_cast<int>(i2) - 1);
         } else if (arg == "--place") {
             // "--place scope=40,280": where a window opens (rack or an instrument).
             size_t eq = value.find('=');

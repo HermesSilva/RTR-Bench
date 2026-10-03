@@ -352,6 +352,7 @@ void Scope::draw(ui::Window &window)
     draw_screen(window, screen_min, screen_max);
     draw_controls(window, ImVec2(screen_max.x + 10.0f * s, frame.panel_min.y), frame.panel_max);
 
+    app_.grab_near(window);
     ui::end_chassis();
 }
 

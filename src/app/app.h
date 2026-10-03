@@ -58,6 +58,11 @@ public:
         int y;
     };
     void place_at_start(const std::string &window, int x, int y) { placements_.push_back(Placement{window, x, y}); }
+    // An output of one instrument into an input of another (--link gen:1=scope:1).
+    void link_at_start(Instrument out, int out_channel, Instrument in, int in_channel)
+    {
+        pending_virtual_wires_.push_back(PendingVirtualWire{InstrumentId{in, 0}, in_channel, InstrumentId{out, 0}, out_channel});
+    }
     struct MathPreset {
         int channel;
         std::string formula;
@@ -100,6 +105,20 @@ public:
     void rewire(InstrumentId instrument, int channel, int port) { make_wire(instrument, channel, port); }
     void cancel_wiring();
 
+    // Instrument to instrument. An output (generator, supply) publishes what
+    // it produces every frame; the bench gives it a virtual port that any
+    // input (scope, logic analyzer, multimeter) can be wired to, and
+    // generates its events as the probe would. Returns the virtual port.
+    int publish_output(InstrumentId instrument, int channel, const core::WaveSpec &spec, bool on);
+    static constexpr int virtual_port_base = 10000;
+    static bool is_virtual_port(int port) { return port >= virtual_port_base; }
+    static bool is_output_instrument(Instrument kind) { return kind == Instrument::Generator || kind == Instrument::Supply; }
+
+    // A click within `grab_radius` of a wire end (outside the jack itself)
+    // grabs that end of the cable; called by every window after its widgets.
+    void grab_near(ui::Window &window);
+    static constexpr float grab_radius = 20.0f;
+
     // Where the ends of the wires are on the desktop, reported every frame by
     // the rack (ports) and the instruments (channels) from their windows.
     void anchor_port(int port, ui::Window &window, float local_x, float local_y);
@@ -140,6 +159,31 @@ private:
         bool new_instance;
     };
     std::vector<PendingOpen> pending_open_;
+
+    // Virtual ports: one per published output of an instrument.
+    struct VirtualPort {
+        InstrumentId output;
+        int channel;
+        core::WaveSpec spec;
+        bool on = false;
+        core::PortInfo info;
+        int level = 0;          // digital state
+        double phase = 0.0;     // analog state
+        int64_t edge_ns = 0;    // next digital edge
+        bool seen = false;      // published this frame
+    };
+    std::vector<VirtualPort> virtual_ports_;
+    int64_t virtual_clock_ns_ = 0;   // where the virtual generation got to
+    std::chrono::steady_clock::time_point virtual_start_;
+    void pump_virtual_ports();
+    VirtualPort *virtual_port(int port);
+    struct PendingVirtualWire {
+        InstrumentId input;
+        int channel;
+        InstrumentId output;
+        int output_channel;
+    };
+    std::vector<PendingVirtualWire> pending_virtual_wires_;   // from bench.json, resolved when published
 
     std::vector<Wire> wires_;
     int selected_port_ = -1;
