@@ -16,8 +16,14 @@ persistência em `.RTR-Bench` (bench.json, scope.json), captura composta
 GitHub Actions (Windows + Linux, release por push). Verificado no Windows;
 no Linux compila e os testes passam (janela não vista: WSLg sem cliente RDP
 na sessão). Observação do protocolo: o chardev do QEMU aceita um cliente por
-vez. Próximos: multímetro (etapa 4), sonda v2 com injeção no fork do QEMU +
-gerador + fonte (5), analisador lógico (6), gravação/replay (7), M2k (8).
+vez. **Etapas 4, 5 (parte da bancada) e 6 feitas** (2026-10-03, manhã):
+multímetro, gerador de padrões, fonte DC e analisador lógico, todos com a
+tecla **ADD** (pedido do usuário: cada clique cria uma nova ponta de medida
+ou saída, para um aparelho servir como vários; a janela cresce com as
+linhas). A sonda DEMO ganhou portas de entrada IN0–IN3 comandadas pela
+bancada (loopback) e a interface `Probe` o comando de padrão
+(`drive_pattern`). Falta: sonda v2 no fork do qemu-pi4 (injeção no Pi),
+gravação/replay (7), M2k (8).
 
 ## 1. Decisões tomadas
 

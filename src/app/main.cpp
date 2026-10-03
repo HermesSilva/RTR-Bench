@@ -13,7 +13,9 @@ namespace {
 const char *usage =
     "usage: rtr-bench [options]\n"
     "  --probe NAME             probe to start with: emulator (default) or demo\n"
-    "  --open NAME              open an instrument at start (scope)\n"
+    "  --open NAME              open an instrument at start (scope, logic, gen, psu, dmm)\n"
+    "  --gen N=on               output N of the generator starts switched on\n"
+    "  --place NAME=X,Y         where a window opens (rack, scope, logic, gen, psu, dmm)\n"
     "  --wire NAME:CH=PORT      wire channel CH of an instrument to a port (--wire scope:1=18)\n"
     "  --math N=FORMULA         enable math channel N (1 or 2) of the scope with a formula name\n"
     "  --screenshot NAME=FILE   write a PNG with alpha of a window (rack, scope) or of the whole\n"
@@ -23,9 +25,17 @@ const char *usage =
 
 bool parse_instrument(const std::string &name, app::Instrument &kind)
 {
-    if (name == "scope") {
-        kind = app::Instrument::Scope;
-        return true;
+    const struct {
+        const char *name;
+        app::Instrument kind;
+    } table[] = {{"scope", app::Instrument::Scope},   {"logic", app::Instrument::Logic},
+                 {"gen", app::Instrument::Generator}, {"psu", app::Instrument::Supply},
+                 {"dmm", app::Instrument::Multimeter}};
+    for (const auto &entry : table) {
+        if (name == entry.name) {
+            kind = entry.kind;
+            return true;
+        }
     }
     return false;
 }
@@ -86,6 +96,39 @@ int run(int argc, char **argv)
                 return 2;
             }
             app.wire_at_start(kind, static_cast<int>(channel) - 1, static_cast<int>(port));
+        } else if (arg == "--place") {
+            // "--place scope=40,280": where a window opens (rack or an instrument).
+            size_t eq = value.find('=');
+            size_t comma = value.find(',');
+            if (eq == std::string::npos || comma == std::string::npos || comma < eq) {
+                std::printf("rtr-bench: bad --place '%s' (use NAME=X,Y)\n", value.c_str());
+                return 2;
+            }
+            char *end_x = nullptr;
+            char *end_y = nullptr;
+            std::string xs = value.substr(eq + 1, comma - eq - 1);
+            std::string ys = value.substr(comma + 1);
+            long px = std::strtol(xs.c_str(), &end_x, 10);
+            long py = std::strtol(ys.c_str(), &end_y, 10);
+            if (xs.empty() || ys.empty() || *end_x != '\0' || *end_y != '\0') {
+                std::printf("rtr-bench: bad --place '%s' (use NAME=X,Y)\n", value.c_str());
+                return 2;
+            }
+            app.place_at_start(value.substr(0, eq), static_cast<int>(px), static_cast<int>(py));
+        } else if (arg == "--gen") {
+            // "--gen 1=on": output 1 of the generator starts on (for screenshots).
+            size_t eq = value.find('=');
+            if (eq == std::string::npos || value.substr(eq + 1) != "on") {
+                std::printf("rtr-bench: bad --gen '%s' (use N=on)\n", value.c_str());
+                return 2;
+            }
+            char *end = nullptr;
+            long n = std::strtol(value.c_str(), &end, 10);
+            if (end == value.c_str() || n < 1 || n > 8) {
+                std::printf("rtr-bench: bad --gen '%s' (use N=on)\n", value.c_str());
+                return 2;
+            }
+            app.generator_on_at_start(static_cast<int>(n));
         } else if (arg == "--math") {
             size_t eq = value.find('=');
             if (eq == std::string::npos || (value[0] != '1' && value[0] != '2')) {

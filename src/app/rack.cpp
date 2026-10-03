@@ -146,17 +146,18 @@ void Rack::draw(ui::Window &window)
     };
     const Entry entries[] = {
         {"##scope", "SCOPE", Instrument::Scope, true},
-        {"##logic", "LOGIC", Instrument::Logic, false},
-        {"##gen", "GEN", Instrument::Generator, false},
-        {"##psu", "PSU", Instrument::Supply, false},
-        {"##dmm", "DMM", Instrument::Multimeter, false},
+        {"##logic", "LOGIC", Instrument::Logic, true},
+        {"##gen", "GEN", Instrument::Generator, true},
+        {"##psu", "PSU", Instrument::Supply, true},
+        {"##dmm", "DMM", Instrument::Multimeter, true},
     };
     float iw = (inst_w - 20.0f * s - 4.0f * gap) / 5.0f;
     for (int i = 0; i < 5; i++) {
         if (ui::key(entries[i].id, entries[i].name, ImVec2(x + static_cast<float>(i) * (iw + gap), y),
                     ImVec2(iw, key_h), app_.instrument_open(entries[i].kind), t.led_run, s,
                     entries[i].available)) {
-            app_.open_instrument(entries[i].kind);
+            // ctrl+click makes one more instance of the instrument.
+            app_.open_instrument(entries[i].kind, ImGui::GetIO().KeyCtrl);
         }
     }
     y += key_h + 9.0f * s;
@@ -223,10 +224,10 @@ void Rack::draw(ui::Window &window)
             ImGui::Text("%s  pin %s", ports[i].name.c_str(), ports[i].pin.c_str());
             ImGui::Text("%s, %llu transitions", direction_text(ps.direction),
                         static_cast<unsigned long long>(ps.transitions));
-            Instrument wired;
+            InstrumentId wired{Instrument::Scope, 0};
             int channel = 0;
             if (app_.port_wired_to(static_cast<int>(i), wired, channel)) {
-                ImGui::Text("wired to %s CH%d", instrument_name(wired), channel + 1);
+                ImGui::Text("wired to %s CH%d", instrument_label(wired).c_str(), channel + 1);
             } else if (app_.selected_port() == static_cast<int>(i)) {
                 ImGui::Text("selected: press a channel key on an instrument");
             } else {

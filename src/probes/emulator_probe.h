@@ -36,6 +36,7 @@ public:
     void poll(std::vector<core::DigitalEvent> &out) override;
     void request_snapshot() override;
     void drive(int port, int level) override;
+    void drive_pattern(int port, int64_t period_ns, int64_t high_ns) override;
 
     // Direction changes reported by a version 2 probe (port, fsel), drained
     // with the events.

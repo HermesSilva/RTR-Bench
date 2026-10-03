@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: Apache-2.0
+// RTR-Bench - the generator: as many outputs as needed (the ADD key makes
+// one more), each a digital pattern on an input port of the target: a
+// level, a clock or a PWM, with frequency and duty knobs and an OUTPUT key.
+// The pattern is generated at the target side (the probe), so its timing
+// does not depend on the bench.
+#pragma once
+
+#include <imgui.h>
+
+#include <chrono>
+#include <memory>
+#include <vector>
+
+#include "app/instrument.h"
+
+namespace app {
+
+class App;
+
+class Generator : public InstrumentBase {
+public:
+    explicit Generator(App &app);
+
+    Instrument kind() const override { return Instrument::Generator; }
+    int channel_count() const override { return static_cast<int>(outputs_.size()); }
+    void draw(ui::Window &window) override;
+    void feed(const std::vector<core::DigitalEvent> &events) override { (void)events; }
+    void wiring_changed() override;
+    void save(nlohmann::json &out) const override;
+    void load(const nlohmann::json &in) override;
+
+    enum class Mode { Low, High, Clock, Pwm };
+    static constexpr int max_outputs = 8;
+
+private:
+    struct Output {
+        int port = -1;
+        bool on = false;
+        Mode mode = Mode::Clock;
+        int freq_step = 9;     // index into the 1-2-5 frequency steps (1 kHz)
+        int duty = 50;         // percent, PWM only
+        bool dirty = true;     // the probe must be told again
+    };
+    void add_output();
+    void remove_output(int index);
+    void apply(Output &o, int index);
+    void fit_window(ui::Window &window);
+
+    App &app_;
+    std::vector<std::unique_ptr<Output>> outputs_;
+    std::chrono::steady_clock::time_point last_apply_;
+};
+
+// 1-2-5 steps from 1 Hz to 1 MHz, in Hz.
+const std::vector<double> &generator_frequency_steps();
+
+}  // namespace app

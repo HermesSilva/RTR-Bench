@@ -2,12 +2,17 @@
 #include "app/app.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 
 #include <imgui.h>
 
 #include "app/settings.h"
+#include "instruments/dmm/dmm.h"
+#include "instruments/generator/generator.h"
+#include "instruments/logic/logic.h"
 #include "instruments/scope/scope.h"
+#include "instruments/supply/supply.h"
 #include "ui/png.h"
 #include "ui/theme.h"
 #include "ui/wire.h"
@@ -30,6 +35,52 @@ const char *instrument_name(Instrument kind)
     }
     return "";
 }
+
+std::string instrument_label(InstrumentId id)
+{
+    std::string label = instrument_name(id.kind);
+    if (id.instance > 0) {
+        label += " #" + std::to_string(id.instance + 1);
+    }
+    return label;
+}
+
+namespace {
+
+const char *probe_name(App::ProbeKind kind)
+{
+    return kind == App::ProbeKind::Demo ? "demo" : "emulator";
+}
+
+const char *theme_name(ui::ThemeKind kind)
+{
+    return kind == ui::ThemeKind::Light ? "light" : kind == ui::ThemeKind::Amber ? "amber" : "dark";
+}
+
+bool instrument_from_name(const std::string &name, Instrument &kind)
+{
+    const Instrument all[] = {Instrument::Scope, Instrument::Logic, Instrument::Generator, Instrument::Supply,
+                              Instrument::Multimeter};
+    for (Instrument i : all) {
+        if (name == instrument_name(i)) {
+            kind = i;
+            return true;
+        }
+    }
+    return false;
+}
+
+// The name used on the command line ("scope") for an instrument kind.
+std::string command_line_name(Instrument kind)
+{
+    std::string name = instrument_name(kind);
+    for (char &c : name) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return name;
+}
+
+}  // namespace
 
 App::App()
 {
@@ -91,6 +142,12 @@ void App::open_rack()
     spec.height = 200;
     spec.x = rack_x_;
     spec.y = rack_y_;
+    for (const Placement &p : placements_) {
+        if (p.window == "rack") {
+            spec.x = p.x;
+            spec.y = p.y;
+        }
+    }
     rack_window_ = std::make_unique<ui::Window>(spec);
     if (!rack_window_->valid()) {
         std::fprintf(stderr, "rtr-bench: cannot create the rack window\n");
@@ -100,10 +157,10 @@ void App::open_rack()
     rack_window_->set_draw([this](ui::Window &w) { rack_.draw(w); });
 }
 
-InstrumentBase *App::find_instrument(Instrument kind)
+InstrumentBase *App::find_instrument(InstrumentId id)
 {
     for (OpenInstrument &i : instruments_) {
-        if (i.instrument->kind() == kind) {
+        if (i.instrument->id() == id) {
             return i.instrument.get();
         }
     }
@@ -120,63 +177,105 @@ bool App::instrument_open(Instrument kind) const
     return false;
 }
 
+int App::next_instance(Instrument kind) const
+{
+    int instance = 0;
+    for (bool taken = true; taken; instance++) {
+        taken = false;
+        for (const OpenInstrument &i : instruments_) {
+            if (i.instrument->kind() == kind && i.instrument->instance() == instance) {
+                taken = true;
+            }
+        }
+        if (!taken) {
+            return instance;
+        }
+    }
+    return instance;
+}
+
 // Called from inside a frame (a key on the rack): creating a window there
 // would switch the ImGui context under the drawing code, so it is queued
 // and done between frames.
-void App::open_instrument(Instrument kind)
+void App::open_instrument(Instrument kind, bool new_instance)
 {
-    for (OpenInstrument &i : instruments_) {
-        if (i.instrument->kind() == kind) {
-            i.window->raise();
-            return;
+    if (!new_instance) {
+        for (OpenInstrument &i : instruments_) {
+            if (i.instrument->kind() == kind) {
+                i.window->raise();
+                return;
+            }
         }
     }
-    pending_open_.push_back(kind);
+    pending_open_.push_back(PendingOpen{kind, new_instance});
 }
 
 void App::open_pending()
 {
-    std::vector<Instrument> pending;
+    std::vector<PendingOpen> pending;
     pending.swap(pending_open_);
-    for (Instrument kind : pending) {
-        create_instrument(kind);
+    for (const PendingOpen &p : pending) {
+        if (!p.new_instance && instrument_open(p.kind)) {
+            continue;
+        }
+        int instance = p.new_instance ? next_instance(p.kind) : 0;
+        // A new instance opens a little below and to the right of the last one.
+        int x = 40 + 30 * instance;
+        int y = 280 + 30 * instance;
+        create_instrument(p.kind, instance, x, y);
     }
 }
 
-void App::create_instrument(Instrument kind)
+void App::create_instrument(Instrument kind, int instance, int x, int y)
 {
-    if (instrument_open(kind)) {
+    if (find_instrument(InstrumentId{kind, instance})) {
         return;
     }
     std::unique_ptr<InstrumentBase> instrument;
     ui::WindowSpec spec;
+    spec.x = x;
+    spec.y = y;
     switch (kind) {
     case Instrument::Scope:
         instrument = std::make_unique<Scope>(*this);
         spec.title = "RTR-Bench Oscilloscope";
-        spec.width = 1080;
+        spec.width = 1000;
         spec.height = 560;
-        spec.x = 40;
-        spec.y = 280;
         break;
-    default:
-        return;  // not built yet
+    case Instrument::Logic:
+        instrument = std::make_unique<LogicAnalyzer>(*this);
+        spec.title = "RTR-Bench Logic Analyzer";
+        spec.width = 1000;
+        spec.height = 420;
+        break;
+    case Instrument::Generator:
+        instrument = std::make_unique<Generator>(*this);
+        spec.title = "RTR-Bench Generator";
+        spec.width = 1000;
+        spec.height = 220;
+        break;
+    case Instrument::Supply:
+        instrument = std::make_unique<Supply>(*this);
+        spec.title = "RTR-Bench Power Supply";
+        spec.width = 1000;
+        spec.height = 220;
+        break;
+    case Instrument::Multimeter:
+        instrument = std::make_unique<Multimeter>(*this);
+        spec.title = "RTR-Bench Multimeter";
+        spec.width = 1000;
+        spec.height = 230;
+        break;
     }
-    for (const SavedWindow &saved : saved_instruments_) {
-        if (saved.kind == kind) {
-            spec.x = saved.x;
-            spec.y = saved.y;
-        }
+    instrument->set_instance(instance);
+    if (instance > 0) {
+        spec.title += " " + std::to_string(instance + 1);
     }
     auto window = std::make_unique<ui::Window>(spec);
     if (!window->valid()) {
         return;
     }
-    std::string file = instrument_name(kind);
-    for (char &c : file) {
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    }
-    instrument->load(load_settings(file));
+    instrument->load(load_settings(settings_name(instrument->id())));
     InstrumentBase *raw = instrument.get();
     window->set_draw([raw](ui::Window &w) { raw->draw(w); });
     instruments_.push_back(OpenInstrument{std::move(instrument), std::move(window)});
@@ -194,7 +293,7 @@ void App::screenshot(const std::string &window_name, const std::string &path)
 
 // ---- wiring ---------------------------------------------------------------
 
-int App::wired_port(Instrument instrument, int channel) const
+int App::wired_port(InstrumentId instrument, int channel) const
 {
     for (const Wire &w : wires_) {
         if (w.instrument == instrument && w.channel == channel) {
@@ -204,7 +303,7 @@ int App::wired_port(Instrument instrument, int channel) const
     return -1;
 }
 
-bool App::port_wired_to(int port, Instrument &instrument, int &channel) const
+bool App::port_wired_to(int port, InstrumentId &instrument, int &channel) const
 {
     for (const Wire &w : wires_) {
         if (w.port == port) {
@@ -218,15 +317,15 @@ bool App::port_wired_to(int port, Instrument &instrument, int &channel) const
 
 uint32_t App::port_wire_colour(int port) const
 {
-    Instrument instrument;
+    InstrumentId instrument{Instrument::Scope, 0};
     int channel = 0;
     if (!port_wired_to(port, instrument, channel)) {
         return 0;
     }
-    return ui::channel_colour(channel);
+    return ui::channel_colour(channel % ui::channel_count);
 }
 
-void App::make_wire(Instrument instrument, int channel, int port)
+void App::make_wire(InstrumentId instrument, int channel, int port)
 {
     if (port < 0 || static_cast<size_t>(port) >= probe_->ports().size() || channel < 0) {
         return;
@@ -240,7 +339,7 @@ void App::make_wire(Instrument instrument, int channel, int port)
     }
 }
 
-void App::unwire(Instrument instrument, int channel)
+void App::unwire(InstrumentId instrument, int channel)
 {
     bool removed = false;
     for (size_t i = 0; i < wires_.size(); i++) {
@@ -266,7 +365,7 @@ void App::select_port(int port)
     selected_port_ = selected_port_ == port ? -1 : port;
 }
 
-void App::offer_channel(Instrument instrument, int channel)
+void App::offer_channel(InstrumentId instrument, int channel)
 {
     if (selected_port_ >= 0) {
         make_wire(instrument, channel, selected_port_);
@@ -281,7 +380,7 @@ void App::offer_channel(Instrument instrument, int channel)
     offered_channel_ = channel;
 }
 
-bool App::channel_offered(Instrument instrument, int channel) const
+bool App::channel_offered(InstrumentId instrument, int channel) const
 {
     return offered_ && offered_instrument_ == instrument && offered_channel_ == channel;
 }
@@ -311,7 +410,7 @@ void App::anchor_port(int port, ui::Window &window, float local_x, float local_y
     port_anchors_[static_cast<size_t>(port)] = Anchor{true, static_cast<float>(wx) + local_x, static_cast<float>(wy) + local_y};
 }
 
-void App::anchor_channel(Instrument instrument, int channel, ui::Window &window, float local_x, float local_y)
+void App::anchor_channel(InstrumentId instrument, int channel, ui::Window &window, float local_x, float local_y)
 {
     if (window.minimized()) {
         return;
@@ -323,7 +422,7 @@ void App::anchor_channel(Instrument instrument, int channel, ui::Window &window,
         instrument, channel, Anchor{true, static_cast<float>(wx) + local_x, static_cast<float>(wy) + local_y}});
 }
 
-const App::Anchor *App::channel_anchor(Instrument instrument, int channel) const
+const App::Anchor *App::channel_anchor(InstrumentId instrument, int channel) const
 {
     for (const ChannelAnchor &a : channel_anchors_) {
         if (a.instrument == instrument && a.channel == channel) {
@@ -367,9 +466,6 @@ App::Overlay &App::overlay_slot(size_t index)
     return overlays_[index];
 }
 
-// Once per frame, after the rack and the instruments reported their anchors:
-// place one overlay per wire over the two ends, plus one following the mouse
-// while a wire is being made.
 bool App::bench_focused() const
 {
     if (rack_window_ && rack_window_->focused()) {
@@ -383,6 +479,9 @@ bool App::bench_focused() const
     return false;
 }
 
+// Once per frame, after the rack and the instruments reported their anchors:
+// place one overlay per wire over the two ends, plus one following the mouse
+// while a wire is being made.
 void App::update_overlays()
 {
     if (!overlays_enabled_) {
@@ -427,9 +526,8 @@ void App::update_overlays()
         if (!p.valid || !c || !c->valid) {
             continue;
         }
-        place(p.x, p.y, c->x, c->y, ui::channel_colour(w.channel), false);
+        place(p.x, p.y, c->x, c->y, ui::channel_colour(w.channel % ui::channel_count), false);
     }
-    // The cable being made follows the cursor from its known end.
     int cx = 0;
     int cy = 0;
     if ((selected_port_ >= 0 || offered_) && ui::platform_cursor(cx, cy)) {
@@ -440,7 +538,7 @@ void App::update_overlays()
             colour = ui::current_theme().led_warn;
         } else if (offered_) {
             from = channel_anchor(offered_instrument_, offered_channel_);
-            colour = ui::channel_colour(offered_channel_);
+            colour = ui::channel_colour(offered_channel_ % ui::channel_count);
         }
         if (from && from->valid) {
             place(from->x, from->y, static_cast<float>(cx), static_cast<float>(cy), colour, true);
@@ -456,32 +554,14 @@ void App::update_overlays()
 
 // ---- settings -------------------------------------------------------------
 
-namespace {
-
-const char *probe_name(App::ProbeKind kind)
+std::string App::settings_name(InstrumentId id)
 {
-    return kind == App::ProbeKind::Demo ? "demo" : "emulator";
-}
-
-const char *theme_name(ui::ThemeKind kind)
-{
-    return kind == ui::ThemeKind::Light ? "light" : kind == ui::ThemeKind::Amber ? "amber" : "dark";
-}
-
-bool instrument_from_name(const std::string &name, Instrument &kind)
-{
-    const Instrument all[] = {Instrument::Scope, Instrument::Logic, Instrument::Generator, Instrument::Supply,
-                              Instrument::Multimeter};
-    for (Instrument i : all) {
-        if (name == instrument_name(i)) {
-            kind = i;
-            return true;
-        }
+    std::string name = command_line_name(id.kind);
+    if (id.instance > 0) {
+        name += "-" + std::to_string(id.instance + 1);
     }
-    return false;
+    return name;
 }
-
-}  // namespace
 
 void App::load_bench_settings()
 {
@@ -502,7 +582,8 @@ void App::load_bench_settings()
         for (const nlohmann::json &w : j["instruments"]) {
             Instrument kind;
             if (w.is_object() && instrument_from_name(w.value("name", ""), kind)) {
-                saved_instruments_.push_back(SavedWindow{kind, w.value("x", 40), w.value("y", 280)});
+                saved_instruments_.push_back(
+                    SavedWindow{InstrumentId{kind, w.value("instance", 0)}, w.value("x", 40), w.value("y", 280)});
             }
         }
     }
@@ -511,7 +592,9 @@ void App::load_bench_settings()
             Instrument kind;
             if (w.is_object() && instrument_from_name(w.value("instrument", ""), kind)) {
                 // Before the command-line wires, so those win on a conflict.
-                wires_at_start_.insert(wires_at_start_.begin(), Wire{kind, w.value("channel", 0), w.value("port", -1)});
+                wires_at_start_.insert(wires_at_start_.begin(),
+                                       Wire{InstrumentId{kind, w.value("instance", 0)}, w.value("channel", 0),
+                                            w.value("port", -1)});
             }
         }
     }
@@ -534,18 +617,20 @@ void App::save_bench_settings()
         int x = 0;
         int y = 0;
         i.window->position(x, y);
-        j["instruments"].push_back({{"name", instrument_name(i.instrument->kind())}, {"x", x}, {"y", y}});
+        j["instruments"].push_back({{"name", instrument_name(i.instrument->kind())},
+                                    {"instance", i.instrument->instance()},
+                                    {"x", x},
+                                    {"y", y}});
         nlohmann::json inst;
         i.instrument->save(inst);
-        std::string file = instrument_name(i.instrument->kind());
-        for (char &c : file) {
-            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        }
-        save_settings(file, inst);
+        save_settings(settings_name(i.instrument->id()), inst);
     }
     j["wires"] = nlohmann::json::array();
     for (const Wire &w : wires_) {
-        j["wires"].push_back({{"instrument", instrument_name(w.instrument)}, {"channel", w.channel}, {"port", w.port}});
+        j["wires"].push_back({{"instrument", instrument_name(w.instrument.kind)},
+                              {"instance", w.instrument.instance},
+                              {"channel", w.channel},
+                              {"port", w.port}});
     }
     save_settings("bench", j);
     last_save_time_ = std::chrono::steady_clock::now();
@@ -704,19 +789,25 @@ int App::run()
         return 1;
     }
     create_probe(probe_kind_);
-    // Instruments open where they were, unless the command line says otherwise.
+    // Instruments open where they were, plus those the command line asks for.
     for (const SavedWindow &saved : saved_instruments_) {
-        if (std::find(open_at_start_.begin(), open_at_start_.end(), saved.kind) == open_at_start_.end()) {
-            open_at_start_.push_back(saved.kind);
-        }
+        create_instrument(saved.id.kind, saved.id.instance, saved.x, saved.y);
     }
     for (Instrument kind : open_at_start_) {
-        create_instrument(kind);
+        int x = 40;
+        int y = 280;
+        for (const Placement &p : placements_) {
+            if (p.window == command_line_name(kind)) {
+                x = p.x;
+                y = p.y;
+            }
+        }
+        create_instrument(kind, 0, x, y);
     }
-    last_save_time_ = std::chrono::steady_clock::now();
     for (const Wire &w : wires_at_start_) {
         make_wire(w.instrument, w.channel, w.port);
     }
+    last_save_time_ = std::chrono::steady_clock::now();
 
     auto start = std::chrono::steady_clock::now();
     bool capture_asked = false;
@@ -744,7 +835,7 @@ int App::run()
                         rack_window_->capture(target.path);
                     }
                     for (OpenInstrument &i : instruments_) {
-                        if (target.window == instrument_name(i.instrument->kind())) {
+                        if (target.window == instrument_name(i.instrument->kind()) && i.instrument->instance() == 0) {
                             i.window->capture(target.path);
                         }
                     }
@@ -760,7 +851,8 @@ int App::run()
                         all = false;
                     }
                     for (OpenInstrument &i : instruments_) {
-                        if (target.window == instrument_name(i.instrument->kind()) && !i.window->captured()) {
+                        if (target.window == instrument_name(i.instrument->kind()) && i.instrument->instance() == 0 &&
+                            !i.window->captured()) {
                             all = false;
                         }
                     }
@@ -785,6 +877,15 @@ int App::run()
         if (screenshots_.empty() &&
             std::chrono::duration<double>(std::chrono::steady_clock::now() - last_save_time_).count() >= 10.0) {
             save_bench_settings();
+        }
+        // A closed instrument keeps its wires out of the way: they are removed.
+        for (OpenInstrument &i : instruments_) {
+            if (i.window->close_requested()) {
+                InstrumentId id = i.instrument->id();
+                wires_.erase(std::remove_if(wires_.begin(), wires_.end(),
+                                            [&](const Wire &w) { return w.instrument == id; }),
+                             wires_.end());
+            }
         }
         instruments_.erase(std::remove_if(instruments_.begin(), instruments_.end(),
                                           [](const OpenInstrument &i) {

@@ -117,7 +117,12 @@ add_executable(rtr-bench
     src/app/app.cpp
     src/app/rack.cpp
     src/app/settings.cpp
+    src/instruments/common/panel.cpp
     src/instruments/scope/scope.cpp
+    src/instruments/logic/logic.cpp
+    src/instruments/generator/generator.cpp
+    src/instruments/supply/supply.cpp
+    src/instruments/dmm/dmm.cpp
     src/ui/theme.cpp
     src/ui/window.cpp
     src/ui/chassis.cpp

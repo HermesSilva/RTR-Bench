@@ -124,6 +124,19 @@ void EmulatorProbe::drive(int port, int level)
     queue_command("d " + std::to_string(port) + " " + std::to_string(level ? 1 : 0) + "\n");
 }
 
+// Version 2: "p <pin> <period_ns> <high_ns>" generated inside the emulator.
+void EmulatorProbe::drive_pattern(int port, int64_t period_ns, int64_t high_ns)
+{
+    if (!capabilities_.drive) {
+        return;
+    }
+    if (period_ns <= 0) {
+        drive(port, high_ns ? 1 : 0);
+        return;
+    }
+    queue_command("p " + std::to_string(port) + " " + std::to_string(period_ns) + " " + std::to_string(high_ns) + "\n");
+}
+
 void EmulatorProbe::handle_line(std::string_view line)
 {
     core::ScopeMessage m;

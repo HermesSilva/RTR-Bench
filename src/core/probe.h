@@ -18,6 +18,7 @@ struct PortInfo {
     std::string pin;      // physical pin on the connector ("12"), empty if none
     bool digital;
     bool analog;
+    bool drivable = false;    // the bench may set its level (an input of the target)
 };
 
 struct DigitalEvent {
@@ -82,6 +83,15 @@ public:
 
     // Forces the level of an input port. No effect on a probe that cannot drive.
     virtual void drive(int port, int level) = 0;
+    // Drives a repeating pulse on an input port: high for `high_ns` every
+    // `period_ns` (period 0 stops it and leaves the level). Generated at the
+    // target side, so the socket latency does not shape the signal.
+    virtual void drive_pattern(int port, int64_t period_ns, int64_t high_ns)
+    {
+        (void)port;
+        (void)period_ns;
+        (void)high_ns;
+    }
 };
 
 }  // namespace core

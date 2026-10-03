@@ -55,7 +55,9 @@ The full plan, with the reason behind each choice, is in [`docs/PLANO.md`](docs/
 
 ## Current state
 
-Stages 0 to 3 of the plan: the rack, the mixed-signal oscilloscope and the wires across the desktop, on the emulator or on the demo probe.
+Stages 0 to 6 of the plan: the rack, the five instruments and the wires across the desktop, on the emulator or on the demo probe.
+
+![The whole bench on the demo probe: rack, oscilloscope, logic analyzer, generator, power supply and multimeter, wired](docs/screenshots/bench-all-dark.png)
 
 ![The bench on the demo probe: the rack wired to the oscilloscope, a sine and a triangle on the analog channels, two digital channels below, M1 = CH1 XOR CH2 and M2 = CH3 x CH4](docs/screenshots/bench-demo-dark.png)
 
@@ -73,10 +75,15 @@ Stages 0 to 3 of the plan: the rack, the mixed-signal oscilloscope and the wires
 - The **oscilloscope**: four channels, digital or analog according to the port wired; 1-2-5 time base from 10 ns/div to 10 s/div, position; volts/div (10 mV to 10 V) and offset per analog channel; trigger by channel, slope and mode (auto, normal, single), with a level knob for an analog source; run/stop; memory of a million transitions or samples per channel, dense regions drawn as bands or min/max columns; cursors with Δt and 1/Δt; measurements of the selected channel (digital: frequency, period, widths, duty, edges; analog: Vpp, Vmax, Vmin, Vmean, Vrms, frequency, period); keyboard (space, S, C, arrows, + −).
 - **Math channels** M1 and M2: new channels computed from a formula over up to four variables A–D, each variable any input channel or the other math channel. The formula comes from a combo grouped by kind and number of inputs — digital (NOT, AND, OR, XOR, NAND, NOR, XNOR, A AND NOT B, SR and D latches, three-input AND/OR/XOR, majority, gating, multiplexer, four-input AND/OR, parity, 2-of-4, (A AND B) OR (C AND D)) and analog (negation, absolute value, square, sum, difference, product, quotient, average, min, max, three- and four-input sums and averages, A×B − C×D, (A − B)/(C − D)). Variables of the wrong kind are swapped for the next wired channel of the right kind. Math channels have measurements, cursors, volts/div and offset like the others; the readout line shows the expression ("M1 = CH1 XOR CH2").
 - `rtr-probe-dump`: console tool that prints what the probe sends; `rtr-bench --probe demo --open scope --wire scope:1=9 --math "1=A XOR B" --screenshot scope=FILE.png` starts on a probe, opens, wires, enables a formula and saves a window with its transparent margins (`scripts\screenshot.ps1`).
+- The **logic analyzer** (LA-1): digital channels on the time base and trigger of the oscilloscope engine, a BUS lane with the hexadecimal value of the wired channels (channel 1 is bit 0) between the instants where any of them changes, cursors, the same keyboard. ADD CHANNEL makes one more lane (up to 16); ctrl+click on a jack removes it.
+- The **pattern generator** (GEN-1): outputs on the input ports of the target — LOW, HIGH, CLOCK (1 Hz to 1 MHz in 1-2-5 steps) or PWM (duty 1 to 99 %), each with an OUTPUT key; the pattern is generated at the target side (the probe), so the socket does not shape it. ADD OUTPUT makes one more (up to 8). On the demo probe the ports IN0 to IN3 loop back into the stream, so a generator output can be watched on the oscilloscope. On the emulator it needs the version 2 probe (qemu-pi4 fork), until then the generator says so.
+- The **DC power supply** (PSU-1): outputs with a SET knob (0 to 5 V), an OUTPUT key and seven-segment volt and ampere displays. On a logic target the output is the level the set voltage means (high from 1.8 V, the BCM2711 threshold); real volts come with the ADALM2000. ADD OUTPUT makes one more (up to 6).
+- The **multimeter** (DMM-1): one row per probe tip — function key, jack, seven-segment reading with min/max/average, HOLD — at 2, 5 or 10 readings per second. Digital ports: FREQ, DUTY, WIDTH, COUNT (pulses since RESET), LEVEL; analog ports: V DC and V AC. ADD TIP makes one more (up to 8), so one multimeter serves as many.
+- Every instrument with ADD grows its window with its rows; its tips or outputs, functions and settings are saved with the bench.
 - **Settings**: theme, probe, the position of every window, the open instruments, the wires and every scope setting (time base, trigger, channels, math) are saved in `.RTR-Bench/bench.json` and `scope.json` next to the executable, every ten seconds and on exit, and restored at the next start. The command line wins over the saved state, and a screenshot run neither reads nor writes it.
 - Windowless tests (Catch2): protocol parser, event queue, port state, trace ring, trigger search, measurements, time base, formulas, themes.
 
-Not there yet: the other instruments (logic analyzer, generator, supply, multimeter).
+Not there yet: recording and replay, the version 2 emulator probe (input drive on the Pi), the ADALM2000 probe.
 
 ## Repository layout
 

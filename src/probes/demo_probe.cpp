@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "probes/demo_probe.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <random>
@@ -39,6 +40,16 @@ DemoProbe::DemoProbe()
         p.analog = true;
         ports_.push_back(p);
     }
+    for (int i = 0; i < input_ports; i++) {
+        core::PortInfo p;
+        p.index = digital_ports + analog_ports + i;
+        p.name = "IN" + std::to_string(i);
+        p.digital = true;
+        p.analog = false;
+        p.drivable = true;
+        ports_.push_back(p);
+    }
+    capabilities_.drive = true;
 }
 
 DemoProbe::~DemoProbe()
@@ -95,7 +106,30 @@ void DemoProbe::request_snapshot()
     snapshot_pending_ = true;
 }
 
-void DemoProbe::drive(int, int) {}
+void DemoProbe::drive(int port, int level)
+{
+    drive_pattern(port, 0, level ? 1 : 0);
+}
+
+// period 0: a static level given by high_ns (0 or 1).
+void DemoProbe::drive_pattern(int port, int64_t period_ns, int64_t high_ns)
+{
+    int i = port - (digital_ports + analog_ports);
+    if (i < 0 || i >= input_ports) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(drive_mutex_);
+    Drive &d = drives_[i];
+    if (period_ns <= 0) {
+        d.period_ns = 0;
+        d.high_ns = 0;
+        d.level = high_ns ? 1 : 0;
+    } else {
+        d.period_ns = period_ns;
+        d.high_ns = std::clamp<int64_t>(high_ns, 0, period_ns);
+    }
+    drive_changed_[i] = true;
+}
 
 // Produces everything between two instants: digital edges at their exact
 // times, analog samples on the 1 MS/s grid.
@@ -134,10 +168,47 @@ void DemoProbe::generate(int64_t from_ns, int64_t to_ns)
             pushed_++;
         }
     }
+    // Inputs driven by the bench: a static level changes at once, a pattern
+    // is generated on its grid like the PWM above.
+    {
+        std::lock_guard<std::mutex> lock(drive_mutex_);
+        for (int i = 0; i < input_ports; i++) {
+            Drive &d = drives_[i];
+            int slot = digital_ports + i;
+            uint16_t port = static_cast<uint16_t>(digital_ports + analog_ports + i);
+            if (d.period_ns == 0) {
+                if (drive_changed_[i] && levels_[slot] != d.level) {
+                    levels_[slot] = d.level;
+                    events_.push(core::DigitalEvent{to_ns, port, static_cast<uint8_t>(d.level), core::DigitalEvent::Transition});
+                    pushed_++;
+                }
+            } else {
+                for (int64_t edge = (from_ns / d.period_ns) * d.period_ns; edge <= to_ns + d.period_ns; edge += d.period_ns) {
+                    int64_t rise = edge;
+                    int64_t fall = edge + d.high_ns;
+                    if (rise > from_ns && rise <= to_ns && d.high_ns > 0 && levels_[slot] != 1) {
+                        levels_[slot] = 1;
+                        events_.push(core::DigitalEvent{rise, port, 1, core::DigitalEvent::Transition});
+                        pushed_++;
+                    }
+                    if (fall > from_ns && fall <= to_ns && d.high_ns < d.period_ns && levels_[slot] != 0) {
+                        levels_[slot] = 0;
+                        events_.push(core::DigitalEvent{fall, port, 0, core::DigitalEvent::Transition});
+                        pushed_++;
+                    }
+                }
+            }
+            drive_changed_[i] = false;
+        }
+    }
     if (snapshot_pending_) {
         for (int i = 0; i < digital_ports; i++) {
             events_.push(core::DigitalEvent{to_ns, static_cast<uint16_t>(i), static_cast<uint8_t>(levels_[i]),
                                             core::DigitalEvent::Snapshot});
+        }
+        for (int i = 0; i < input_ports; i++) {
+            events_.push(core::DigitalEvent{to_ns, static_cast<uint16_t>(digital_ports + analog_ports + i),
+                                            static_cast<uint8_t>(levels_[digital_ports + i]), core::DigitalEvent::Snapshot});
         }
         snapshot_pending_ = false;
     }

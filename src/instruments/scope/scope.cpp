@@ -204,7 +204,7 @@ void Scope::refresh_wiring()
 {
     for (int i = 0; i < channels; i++) {
         Channel &c = ch_[static_cast<size_t>(i)];
-        int port = app_.wired_port(Instrument::Scope, i);
+        int port = app_.wired_port(this->id(), i);
         if (port != c.port) {
             c.port = port;
             c.trace.clear();
@@ -322,7 +322,7 @@ void Scope::draw(ui::Window &window)
 {
     ui::ChassisSpec chassis;
     chassis.model = "MSO-1";
-    chassis.title = "Mixed Signal Oscilloscope";
+    chassis.title = std::string("Mixed Signal Oscilloscope") + title_suffix();
     ui::ChassisFrame frame = ui::begin_chassis(window, chassis);
     const float s = window.scale();
 
@@ -943,8 +943,8 @@ void Scope::draw_controls(ui::Window &window, ImVec2 min, ImVec2 max)
     group_top = y - title_h;
     kw = (inner_w - 3.0f * gap) / 4.0f;
     for (int c = 0; c < channels; c++) {
-        char id[16];
-        char label[8];
+        char id[32];
+        char label[16];
         std::snprintf(id, sizeof(id), "##trig%d", c);
         std::snprintf(label, sizeof(label), "CH%d", c + 1);
         if (ui::key(id, label, ImVec2(x + static_cast<float>(c) * (kw + gap), y), ImVec2(kw, key_h),
@@ -1005,7 +1005,7 @@ void Scope::draw_controls(ui::Window &window, ImVec2 min, ImVec2 max)
     for (int c = 0; c < channels; c++) {
         const Channel &ch = ch_[static_cast<size_t>(c)];
         float cx = x + static_cast<float>(c) * (cell + gap);
-        char id[16];
+        char id[32];
         char label[16];
         std::snprintf(id, sizeof(id), "##ch%d", c);
         const core::PortInfo *info = app_.port_info(ch.port);
@@ -1015,14 +1015,14 @@ void Scope::draw_controls(ui::Window &window, ImVec2 min, ImVec2 max)
         } else {
             std::snprintf(label, sizeof(label), "CH%d", c + 1);
         }
-        bool lit = ch.port >= 0 || app_.channel_offered(Instrument::Scope, c);
+        bool lit = ch.port >= 0 || app_.channel_offered(this->id(), c);
         if (ui::key(id, label, ImVec2(cx, y), ImVec2(kw, key_h), lit, ui::channel_colour(c), s)) {
             if (ch.port >= 0 && selected_ == c && app_.selected_port() < 0) {
-                app_.unwire(Instrument::Scope, c);
+                app_.unwire(this->id(), c);
             } else if (ch.port >= 0 && app_.selected_port() < 0) {
                 selected_ = c;
             } else {
-                app_.offer_channel(Instrument::Scope, c);
+                app_.offer_channel(this->id(), c);
                 selected_ = c;
             }
         }
@@ -1041,13 +1041,13 @@ void Scope::draw_controls(ui::Window &window, ImVec2 min, ImVec2 max)
         char jid[16];
         std::snprintf(jid, sizeof(jid), "##chjack%d", c);
         if (ui::jack(jid, jack_c, jack_r, look, s)) {
-            app_.offer_channel(Instrument::Scope, c);
+            app_.offer_channel(this->id(), c);
             selected_ = c;
         }
-        if (app_.channel_offered(Instrument::Scope, c)) {
+        if (app_.channel_offered(this->id(), c)) {
             draw->AddCircle(jack_c, jack_r + 3.0f * s, t.led_warn, 20, 1.5f * s);
         }
-        app_.anchor_channel(Instrument::Scope, c, window, jack_c.x, jack_c.y);
+        app_.anchor_channel(this->id(), c, window, jack_c.x, jack_c.y);
     }
     y += key_h + gap;
     kw = (inner_w - gap) / 2.0f;
@@ -1068,8 +1068,8 @@ void Scope::draw_controls(ui::Window &window, ImVec2 min, ImVec2 max)
     float mw = 44.0f * s;
     for (int m = 0; m < math_channels; m++) {
         Channel &mc = ch_[math_slot(m)];
-        char id[16];
-        char label[8];
+        char id[32];
+        char label[16];
         std::snprintf(id, sizeof(id), "##math%d", m);
         std::snprintf(label, sizeof(label), "M%d", m + 1);
         float kx = x + static_cast<float>(m) * (mw + gap);
@@ -1096,7 +1096,7 @@ void Scope::draw_controls(ui::Window &window, ImVec2 min, ImVec2 max)
         float iw = (inner_w - 3.0f * gap) / 4.0f;
         const char *names[core::formula_inputs_max] = {"A", "B", "C", "D"};
         for (int k = 0; k < core::formula_inputs_max; k++) {
-            char id[16];
+            char id[32];
             char label[16];
             std::snprintf(id, sizeof(id), "##in%d", k);
             int src = mc.input[k];

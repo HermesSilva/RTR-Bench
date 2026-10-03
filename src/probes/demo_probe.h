@@ -38,9 +38,13 @@ public:
     void poll_analog(std::vector<core::AnalogBlock> &out) override;
     void request_snapshot() override;
     void drive(int port, int level) override;
+    void drive_pattern(int port, int64_t period_ns, int64_t high_ns) override;
 
     static constexpr int digital_ports = 9;
     static constexpr int analog_ports = 4;
+    // IN0..IN3: inputs the bench drives (generator, supply); what is driven
+    // shows up in the stream like any other port, a loopback.
+    static constexpr int input_ports = 4;
     static constexpr int64_t analog_dt_ns = 1000;   // 1 MS/s
 
 private:
@@ -61,8 +65,18 @@ private:
     core::ProbeStats stats_;
     int64_t generated_ns_ = 0;
     uint64_t pushed_ = 0;
-    int levels_[digital_ports] = {};
+    int levels_[digital_ports + input_ports] = {};
     bool snapshot_pending_ = true;
+
+    // What the bench asked for on each input port.
+    struct Drive {
+        int level = 0;
+        int64_t period_ns = 0;   // 0: static level
+        int64_t high_ns = 0;
+    };
+    std::mutex drive_mutex_;
+    Drive drives_[input_ports];
+    bool drive_changed_[input_ports] = {};
 };
 
 }  // namespace probes
