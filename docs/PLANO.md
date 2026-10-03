@@ -16,7 +16,17 @@ persistência em `.RTR-Bench` (bench.json, scope.json), captura composta
 GitHub Actions (Windows + Linux, release por push). Verificado no Windows;
 no Linux compila e os testes passam (janela não vista: WSLg sem cliente RDP
 na sessão). Observação do protocolo: o chardev do QEMU aceita um cliente por
-vez. **Etapas 4, 5 (parte da bancada) e 6 feitas** (2026-10-03, manhã):
+vez. **Acréscimos de 2026-10-03 (manhã, depois dos aparelhos)**: instâncias
+de aparelho por Ctrl+clique (`scope-2.json`); ligação aparelho→aparelho por
+**portas virtuais** (saída do gerador/fonte publica a forma de onda, o bench
+gera os eventos; só saída→entrada; `--link`); pegar o fio pelo jack ou a 20 px
+da ponta; botão direito seleciona canal no osciloscópio; gerador com dropdown
+de ondas (níveis, digitais com burst/sweep, analógicas, modulações AM/FM/PM/
+PWM) e saídas analógicas AO0/AO1 na DEMO; pontas/saídas como mini-módulos em
+duas colunas, sem textos explicativos; todas as janelas com 940 px (duas lado
+a lado em Full HD); rack com uma fila de teclas e bornes em toda a largura;
+fios a 2,4 px; capturas nos três temas (`--theme`, `--place`).
+**Etapas 4, 5 (parte da bancada) e 6 feitas** (2026-10-03, manhã):
 multímetro, gerador de padrões, fonte DC e analisador lógico, todos com a
 tecla **ADD** (pedido do usuário: cada clique cria uma nova ponta de medida
 ou saída, para um aparelho servir como vários; a janela cresce com as
