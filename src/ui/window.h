@@ -58,6 +58,7 @@ public:
     void minimize();
     bool minimized() const;
     void raise();   // bring to front and focus
+    void raise_without_focus();   // bring to front, the focus stays where it is
     void show(bool visible);
     bool focused() const;
 

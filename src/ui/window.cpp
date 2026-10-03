@@ -366,6 +366,17 @@ void Window::raise()
     glfwFocusWindow(window_);
 }
 
+void Window::raise_without_focus()
+{
+#ifdef _WIN32
+    SetWindowPos(glfwGetWin32Window(window_), HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+#elif defined(__linux__)
+    if (glfwGetPlatform() == GLFW_PLATFORM_X11) {
+        XRaiseWindow(glfwGetX11Display(), glfwGetX11Window(window_));
+    }
+#endif
+}
+
 bool Window::take_capture(std::vector<uint8_t> &rgba, int &width, int &height)
 {
     if (captured_pixels_.empty()) {

@@ -87,7 +87,7 @@ void Rack::draw(ui::Window &window)
 
     // ---- PROBE: keys, then state and address, then rate and clock ---------
     ImVec2 probe_min(frame.panel_min.x, top);
-    ImVec2 probe_max(frame.panel_min.x + 280.0f * s, bottom);
+    ImVec2 probe_max(frame.panel_min.x + 236.0f * s, bottom);
     ui::group_frame(probe_min, probe_max, "PROBE", s);
     float x = probe_min.x + 10.0f * s;
     float y = probe_min.y + 10.0f * s;
@@ -132,7 +132,7 @@ void Rack::draw(ui::Window &window)
     }
 
     // ---- INSTRUMENTS: one row of keys, then the theme row ----------------
-    const float inst_w = 330.0f * s;
+    const float inst_w = 300.0f * s;
     ImVec2 inst_min(frame.panel_max.x - inst_w, top);
     ImVec2 inst_max(frame.panel_max.x, bottom);
     ui::group_frame(inst_min, inst_max, "INSTRUMENTS", s);
@@ -188,7 +188,7 @@ void Rack::draw(ui::Window &window)
     const core::PortState &state_of = app_.ports();
     const int per_row = 14;
     const int rows = std::max(1, (static_cast<int>(ports.size()) + per_row - 1) / per_row);
-    const float radius = 10.0f * s;
+    const float radius = 9.0f * s;
     float cell_w = (ports_max.x - ports_min.x - 12.0f * s) / per_row;
     float row_h = (ports_max.y - ports_min.y - 10.0f * s) / static_cast<float>(std::max(rows, 2));
     for (size_t i = 0; i < ports.size() && i < state_of.size(); i++) {

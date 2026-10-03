@@ -170,6 +170,7 @@ private:
     bool overlays_enabled_ = false;
     bool wires_shown_ = true;
     bool force_wires_ = false;
+    bool bench_was_focused_ = false;
     bool bench_focused() const;
     void begin_anchors();
     void update_overlays();

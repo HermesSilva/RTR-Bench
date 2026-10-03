@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cfloat>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -443,6 +444,25 @@ void Scope::draw_screen(ui::Window &window, ImVec2 min, ImVec2 max)
                     draw_analog(ch, c, draw, s);
                 }
             }
+            // Right click on the analog area selects the trace nearest to the mouse.
+            ImVec2 mouse = ImGui::GetIO().MousePos;
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) && ImGui::IsWindowHovered() && mouse.x >= analog_min_.x &&
+                mouse.x <= analog_max_.x && mouse.y >= analog_min_.y && mouse.y <= analog_max_.y) {
+                int64_t at = view.t0 + static_cast<int64_t>(static_cast<double>(mouse.x - screen_min_.x) /
+                                                            static_cast<double>(w) * static_cast<double>(view.t1 - view.t0));
+                float best = 1e9f;
+                for (int c = 0; c < all_channels; c++) {
+                    const Channel &ch = ch_[static_cast<size_t>(c)];
+                    float v = 0.0f;
+                    if (wired_or_enabled(ch) && ch.is_analog && ch.visible && ch.analog.value_at(at, v)) {
+                        float d = std::fabs(volts_to_y(ch, v) - mouse.y);
+                        if (d < best) {
+                            best = d;
+                            selected_ = c;
+                        }
+                    }
+                }
+            }
             if (digital_count > 0) {
                 draw->AddLine(ImVec2(screen_min_.x, analog_max_.y), ImVec2(screen_max_.x, analog_max_.y),
                               t.graticule_axis, 1.0f);
@@ -460,6 +480,15 @@ void Scope::draw_screen(ui::Window &window, ImVec2 min, ImVec2 max)
             }
             float top = analog_max_.y + lane_h * static_cast<float>(lane);
             draw_digital(ch, c, top + lane_h * 0.18f, top + lane_h - lane_h * 0.18f, draw, s);
+            {
+                char lane_id[16];
+                std::snprintf(lane_id, sizeof(lane_id), "##lane%d", c);
+                ImGui::SetCursorScreenPos(ImVec2(screen_min_.x, top));
+                ImGui::InvisibleButton(lane_id, ImVec2(screen_max_.x - screen_min_.x, lane_h));
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                    selected_ = c;
+                }
+            }
             lane++;
         }
         // Trigger marker.
@@ -557,6 +586,17 @@ void Scope::draw_screen(ui::Window &window, ImVec2 min, ImVec2 max)
             std::snprintf(text, sizeof(text), "%s %s", tag, info ? info->name.c_str() : "?");
         } else {
             std::snprintf(text, sizeof(text), "%s --", tag);
+        }
+        {
+            // The tag is clickable: either button selects the channel.
+            float tag_w = mono_width(text);
+            char tag_id[16];
+            std::snprintf(tag_id, sizeof(tag_id), "##tag%d", c);
+            ImGui::SetCursorScreenPos(ImVec2(x - 3.0f * s, ry - 1.0f * s));
+            ImGui::InvisibleButton(tag_id, ImVec2(tag_w + 6.0f * s, line_h));
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right) || ImGui::IsItemClicked()) {
+                selected_ = c;
+            }
         }
         if (c == selected_) {
             float tw = mono_width(text);
@@ -1026,6 +1066,9 @@ void Scope::draw_controls(ui::Window &window, ImVec2 min, ImVec2 max)
                 selected_ = c;
             }
         }
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+            selected_ = c;   // right click: the channel the H and V knobs control
+        }
         if (selected_ == c) {
             draw->AddRect(ImVec2(cx - 2.0f * s, y - 2.0f * s), ImVec2(cx + kw + 2.0f * s, y + key_h + 2.0f * s),
                           ui::channel_colour(c), 4.0f * s, 0, 1.5f * s);
@@ -1081,6 +1124,10 @@ void Scope::draw_controls(ui::Window &window, ImVec2 min, ImVec2 max)
                 math_shown = m;
                 selected_ = channels + m;
             }
+        }
+        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+            math_shown = m;
+            selected_ = channels + m;
         }
         if (math_shown == m) {
             draw->AddRect(ImVec2(kx - 2.0f * s, y - 2.0f * s), ImVec2(kx + mw + 2.0f * s, y + key_h + 2.0f * s),

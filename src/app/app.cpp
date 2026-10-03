@@ -138,7 +138,7 @@ void App::open_rack()
 {
     ui::WindowSpec spec;
     spec.title = "RTR-Bench Rack";
-    spec.width = 1180;
+    spec.width = 1000;
     spec.height = 200;
     spec.x = rack_x_;
     spec.y = rack_y_;
@@ -362,6 +362,17 @@ void App::select_port(int port)
         make_wire(offered_instrument_, offered_channel_, port);
         return;
     }
+    // A wired jack: the click grabs that end of the cable, which then hangs
+    // from the instrument until it is plugged somewhere else.
+    InstrumentId wired{Instrument::Scope, 0};
+    int channel = 0;
+    if (selected_port_ < 0 && port_wired_to(port, wired, channel)) {
+        unwire(wired, channel);
+        offered_ = true;
+        offered_instrument_ = wired;
+        offered_channel_ = channel;
+        return;
+    }
     selected_port_ = selected_port_ == port ? -1 : port;
 }
 
@@ -369,6 +380,14 @@ void App::offer_channel(InstrumentId instrument, int channel)
 {
     if (selected_port_ >= 0) {
         make_wire(instrument, channel, selected_port_);
+        return;
+    }
+    // A wired channel: the click grabs that end of the cable, which then
+    // hangs from the rack port until it is plugged into another channel.
+    int port = wired_port(instrument, channel);
+    if (!offered_ && port >= 0) {
+        unwire(instrument, channel);
+        selected_port_ = port;
         return;
     }
     if (offered_ && offered_instrument_ == instrument && offered_channel_ == channel) {
@@ -814,6 +833,30 @@ int App::run()
     while (rack_window_ && !rack_window_->close_requested()) {
         ui::platform_poll();
         open_pending();
+        // When the bench gets the focus, every one of its windows comes to the
+        // front, so none stays under another application.
+        {
+            bool focused_now = bench_focused();
+            if (focused_now && !bench_was_focused_) {
+                for (OpenInstrument &i : instruments_) {
+                    if (!i.window->focused()) {
+                        i.window->raise_without_focus();
+                    }
+                }
+                if (!rack_window_->focused()) {
+                    rack_window_->raise_without_focus();
+                }
+                for (OpenInstrument &i : instruments_) {
+                    if (i.window->focused()) {
+                        i.window->raise_without_focus();
+                    }
+                }
+                if (rack_window_->focused()) {
+                    rack_window_->raise_without_focus();
+                }
+            }
+            bench_was_focused_ = focused_now;
+        }
         if (switch_pending_) {
             switch_pending_ = false;
             create_probe(switch_to_);
