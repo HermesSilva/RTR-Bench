@@ -47,7 +47,7 @@ private:
     void apply(Output &o);
     void fit_window(ui::Window &window);
     void draw_module(ui::Window &window, int index, ImVec2 min, ImVec2 max);
-    void draw_waveform_combo(Output &o, int index, ImVec2 pos, ImVec2 size, bool analog_port, float scale);
+    void draw_waveform_combo(Output &o, int index, ImVec2 pos, ImVec2 size, float scale);
 
     App &app_;
     std::vector<std::unique_ptr<Output>> outputs_;

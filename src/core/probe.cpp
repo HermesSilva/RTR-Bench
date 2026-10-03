@@ -98,8 +98,16 @@ void Probe::drive_waveform(int port, const WaveSpec &spec)
         drive_pattern(port, period, period * duty / 100);
         break;
     }
-    default:
+    case Waveform::Dc:
+        drive_pattern(port, 0, spec.amplitude_v + spec.offset_v > 0.0 ? 1 : 0);
         break;
+    default: {
+        // An analog wave on a digital port: its logic level (zero crossing),
+        // a clock at the carrier frequency.
+        int64_t period = spec.freq_hz > 0.0 ? static_cast<int64_t>(1e9 / spec.freq_hz) : 0;
+        drive_pattern(port, period, period / 2);
+        break;
+    }
     }
 }
 

@@ -43,6 +43,68 @@ bool is_modulation(core::Waveform k)
     return k == core::Waveform::AM || k == core::Waveform::FM || k == core::Waveform::PM || k == core::Waveform::PwmMod;
 }
 
+// One period of the wave drawn in a small box, as the icon of the kind.
+void draw_wave_icon(ImDrawList *draw, ImVec2 pos, ImVec2 size, core::Waveform kind, uint32_t colour, float s)
+{
+    const int n = 32;
+    ImVec2 pts[n];
+    float mid = pos.y + size.y * 0.5f;
+    float amp = size.y * 0.42f;
+    for (int i = 0; i < n; i++) {
+        float p = static_cast<float>(i) / static_cast<float>(n - 1);
+        float v = 0.0f;
+        switch (kind) {
+        case core::Waveform::Low:
+            v = -1.0f;
+            break;
+        case core::Waveform::High:
+        case core::Waveform::Dc:
+            v = 1.0f;
+            break;
+        case core::Waveform::Clock:
+        case core::Waveform::Burst:
+            v = std::fmod(p * 2.0f, 1.0f) < 0.5f ? 1.0f : -1.0f;
+            break;
+        case core::Waveform::Pwm:
+        case core::Waveform::PwmMod:
+            v = std::fmod(p * 2.0f, 1.0f) < 0.25f ? 1.0f : -1.0f;
+            break;
+        case core::Waveform::Sweep:
+            v = std::fmod(p * p * 6.0f, 1.0f) < 0.5f ? 1.0f : -1.0f;
+            break;
+        case core::Waveform::Sine:
+            v = std::sin(p * 6.2831853f);
+            break;
+        case core::Waveform::AM:
+            v = std::sin(p * 6.2831853f * 3.0f) * (0.5f + 0.5f * std::sin(p * 6.2831853f));
+            break;
+        case core::Waveform::FM:
+            v = std::sin(p * 6.2831853f * (1.5f + 2.5f * p));
+            break;
+        case core::Waveform::PM:
+            v = std::sin(p * 6.2831853f * 2.0f + 1.5f * std::sin(p * 6.2831853f));
+            break;
+        case core::Waveform::Triangle:
+            v = p < 0.5f ? 4.0f * p - 1.0f : 3.0f - 4.0f * p;
+            break;
+        case core::Waveform::Sawtooth:
+            v = 2.0f * p - 1.0f;
+            break;
+        case core::Waveform::RampDown:
+            v = 1.0f - 2.0f * p;
+            break;
+        case core::Waveform::Noise:
+            v = std::sin(p * 97.0f) * std::cos(p * 31.0f);
+            break;
+        case core::Waveform::Off:
+            v = 0.0f;
+            break;
+        }
+        pts[i] = ImVec2(pos.x + p * size.x, mid - v * amp);
+    }
+    draw->AddPolyline(pts, n, colour, 0, 1.2f * s);
+}
+
 }  // namespace
 
 Generator::Generator(App &app) : app_(app)
@@ -142,7 +204,7 @@ void Generator::fit_window(ui::Window &window)
     }
 }
 
-void Generator::draw_waveform_combo(Output &o, int index, ImVec2 pos, ImVec2 size, bool analog_port, float s)
+void Generator::draw_waveform_combo(Output &o, int index, ImVec2 pos, ImVec2 size, float s)
 {
     const ui::Theme &t = ui::current_theme();
     ImDrawList *draw = ImGui::GetWindowDrawList();
@@ -161,7 +223,9 @@ void Generator::draw_waveform_combo(Output &o, int index, ImVec2 pos, ImVec2 siz
     draw->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), hovered ? t.key_hover : t.screen, 4.0f * s);
     draw->AddRect(pos, ImVec2(pos.x + size.x, pos.y + size.y), t.chassis_shadow, 4.0f * s, 0, 1.0f * s);
     ImFont *mono = ui::fonts().mono;
-    draw->AddText(mono, mono->FontSize, ImVec2(pos.x + 8.0f * s, pos.y + (size.y - mono->FontSize) * 0.5f), colour,
+    // A small picture of the wave, then its name.
+    draw_wave_icon(draw, ImVec2(pos.x + 6.0f * s, pos.y + 3.0f * s), ImVec2(30.0f * s, size.y - 6.0f * s), o.spec.kind, colour, s);
+    draw->AddText(mono, mono->FontSize, ImVec2(pos.x + 42.0f * s, pos.y + (size.y - mono->FontSize) * 0.5f), colour,
                   core::waveform_name(o.spec.kind));
     float cx = pos.x + size.x - 12.0f * s;
     float cy = pos.y + size.y * 0.5f;
@@ -193,7 +257,7 @@ void Generator::draw_waveform_combo(Output &o, int index, ImVec2 pos, ImVec2 siz
                 ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(t.label_dim), "%s", group);
                 ImGui::PopFont();
             }
-            bool allowed = analog_port || !core::waveform_is_analog(kind);
+            bool allowed = true;   // an analog wave on a digital port drives its logic level
             bool is_current = kind == o.spec.kind;
             ImGui::PushFont(mono);
             if (!allowed) {
@@ -271,10 +335,11 @@ void Generator::draw_module(ui::Window &window, int index, ImVec2 min, ImVec2 ma
     x += 70.0f * s;
     float out_w = 74.0f * s;
     float combo_w = max.x - 10.0f * s - out_w - gap - x;
-    draw_waveform_combo(o, index, ImVec2(x, y), ImVec2(combo_w, key_h), analog_port, s);
+    draw_waveform_combo(o, index, ImVec2(x, y), ImVec2(combo_w, key_h), s);
     x += combo_w + gap;
     std::snprintf(id, sizeof(id), "##out%d", index);
-    bool usable = o.port >= 0 && drivable && can_drive && (analog_port || !core::waveform_is_analog(o.spec.kind));
+    bool usable = o.port >= 0 && drivable && can_drive;
+    (void)analog_port;
     if (ui::key(id, o.on ? "ON" : "OUTPUT", ImVec2(x, y), ImVec2(out_w, key_h), o.on, t.led_run, s, usable)) {
         o.on = !o.on;
         o.dirty = true;
