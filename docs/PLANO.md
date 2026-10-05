@@ -172,7 +172,9 @@ para as capturas; os temas continuam no produto). As cenas compostas usam
 `--tile on`: a bancada arruma as janelas em duas colunas, sem sobreposição
 e dentro de um monitor (uma janela que cai fora da tela passa para outro
 monitor e é desenhada na escala dele). As duas cenas do emulador
-(`rack-dark.png`, `scope-dark.png`) ainda são as antigas.
+(`rack-dark.png`, `scope-dark.png`) foram refeitas com o RTR-OS rodando o
+contador (`scripts/run-web.sh 8080 scope` no WSL, depois `rtr-bench --probe
+emulator --tile on --screenshot ...`).
 
 **Próximas levas, pela ordem**: (2) editor — seleção múltipla com retângulo,
 copiar/colar, mover fio, fios que acompanham em ângulo reto, rótulos de nó

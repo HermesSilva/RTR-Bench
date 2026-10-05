@@ -102,8 +102,6 @@ Every screenshot in `docs/screenshots/` is produced by `rtr-bench --screenshot` 
 - **Settings**: theme, probe, the position of every window, the open instruments, the wires and every scope setting (time base, trigger, channels, math) are saved in `.RTR-Bench/bench.json` and `scope.json` next to the executable, every ten seconds and on exit, and restored at the next start. The command line wins over the saved state, and a screenshot run neither reads nor writes it.
 - Windowless tests (Catch2): protocol parser, event queue, port state, trace ring, trigger search, measurements, time base, formulas, themes.
 
-The two emulator scenes above (the rack and the oscilloscope on RTR-OS) were taken before the circuit bench and the audio strip: the rack in them is the earlier one.
-
 Not there yet in the circuit bench: negative supply rails, undo, modules and the part library, digital parts, the ports of the target (GPIO) in the schematic. Not there yet elsewhere: recording and replay, the version 2 emulator probe (input drive on the Pi), the ADALM2000 probe.
 
 ## Repository layout
