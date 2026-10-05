@@ -5,11 +5,14 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <fstream>
 #include <random>
 
 #include <imgui.h>
 
 #include "app/settings.h"
+#include "audio/audio_ports.h"
+#include "instruments/circuit/circuit.h"
 #include "instruments/dmm/dmm.h"
 #include "instruments/generator/generator.h"
 #include "instruments/logic/logic.h"
@@ -34,6 +37,10 @@ const char *instrument_name(Instrument kind)
         return "PSU";
     case Instrument::Multimeter:
         return "DMM";
+    case Instrument::Circuit:
+        return "LAB";
+    case Instrument::Audio:
+        return "AUDIO";
     }
     return "";
 }
@@ -61,8 +68,9 @@ const char *theme_name(ui::ThemeKind kind)
 
 bool instrument_from_name(const std::string &name, Instrument &kind)
 {
-    const Instrument all[] = {Instrument::Scope, Instrument::Logic, Instrument::Generator, Instrument::Supply,
-                              Instrument::Multimeter};
+    const Instrument all[] = {Instrument::Scope,  Instrument::Logic,      Instrument::Generator,
+                              Instrument::Supply, Instrument::Multimeter, Instrument::Circuit,
+                              Instrument::Audio};
     for (Instrument i : all) {
         if (name == instrument_name(i)) {
             kind = i;
@@ -107,8 +115,11 @@ void App::create_probe(ProbeKind kind)
     }
     probe_kind_ = kind;
     ports_ = core::PortState(probe_->ports().size());
-    // Ports have another meaning now: every wire is removed.
-    wires_.clear();
+    // Ports have another meaning now: every wire is removed, except the
+    // cables plugged into the circuit, which is no part of the probe.
+    wires_.erase(std::remove_if(wires_.begin(), wires_.end(),
+                                [](const Wire &w) { return !is_circuit_port(w.port) && !is_audio_port(w.port); }),
+                 wires_.end());
     selected_port_ = -1;
     offered_ = false;
     for (OpenInstrument &i : instruments_) {
@@ -130,6 +141,13 @@ void App::switch_probe(ProbeKind kind)
 
 const core::PortInfo *App::port_info(int port) const
 {
+    if (is_audio_port(port)) {
+        return audio_ ? audio_->source_info(port - audio_port_base) : nullptr;
+    }
+    if (is_circuit_port(port)) {
+        size_t slot = static_cast<size_t>(port - circuit_port_base);
+        return slot < circuit_ports_.size() && !circuit_ports_[slot].name.empty() ? &circuit_ports_[slot] : nullptr;
+    }
     if (is_virtual_port(port)) {
         size_t slot = static_cast<size_t>(port - virtual_port_base);
         return slot < virtual_ports_.size() ? &virtual_ports_[slot].info : nullptr;
@@ -146,7 +164,7 @@ void App::open_rack()
     ui::WindowSpec spec;
     spec.title = "RTR-Bench Rack";
     spec.width = 940;
-    spec.height = 232;
+    spec.height = 302;
     spec.x = rack_x_;
     spec.y = rack_y_;
     for (const Placement &p : placements_) {
@@ -161,6 +179,7 @@ void App::open_rack()
         rack_window_.reset();
         return;
     }
+    rack_window_->set_on_top(rack_on_top_);
     rack_window_->set_draw([this](ui::Window &w) { rack_.draw(w); });
 }
 
@@ -171,6 +190,9 @@ InstrumentBase *App::find_instrument(InstrumentId id)
             return i.instrument.get();
         }
     }
+    if (audio_ && audio_->id() == id) {
+        return audio_.get();
+    }
     return nullptr;
 }
 
@@ -180,6 +202,9 @@ const InstrumentBase *App::instrument(InstrumentId id) const
         if (i.instrument->id() == id) {
             return i.instrument.get();
         }
+    }
+    if (audio_ && audio_->id() == id) {
+        return audio_.get();
     }
     return nullptr;
 }
@@ -216,6 +241,9 @@ int App::next_instance(Instrument kind) const
 // and done between frames.
 void App::open_instrument(Instrument kind, bool new_instance)
 {
+    if (kind == Instrument::Circuit) {
+        new_instance = false;   // one simulator, one circuit
+    }
     if (!new_instance) {
         for (OpenInstrument &i : instruments_) {
             if (i.instrument->kind() == kind) {
@@ -283,6 +311,14 @@ void App::create_instrument(Instrument kind, int instance, int x, int y)
         spec.width = 940;
         spec.height = 230;
         break;
+    case Instrument::Audio:
+        return;   // no window: its jacks are on the rack
+    case Instrument::Circuit:
+        instrument = std::make_unique<CircuitBench>(*this);
+        spec.title = "RTR-Bench Circuit";
+        spec.width = 1100;
+        spec.height = 700;
+        break;
     }
     instrument->set_instance(instance);
     if (instance > 0) {
@@ -292,8 +328,21 @@ void App::create_instrument(Instrument kind, int instance, int x, int y)
     if (!window->valid()) {
         return;
     }
-    if (screenshots_.empty()) {
+    if (kind == Instrument::Circuit && !circuit_file_.empty()) {
+        std::ifstream file(circuit_file_);
+        nlohmann::json circuit = nlohmann::json::parse(file, nullptr, false);
+        if (circuit.is_object()) {
+            instrument->load(circuit);
+        } else {
+            std::fprintf(stderr, "rtr-bench: cannot read the circuit %s\n", circuit_file_.c_str());
+        }
+    } else if (screenshots_.empty()) {
         instrument->load(load_settings(settings_name(instrument->id())));   // screenshots: command line only
+    }
+    for (const SavedWindow &saved : saved_instruments_) {
+        if (saved.id == instrument->id() && saved.on_top) {
+            window->set_on_top(true);
+        }
     }
     InstrumentBase *raw = instrument.get();
     window->set_draw([raw](ui::Window &w) { raw->draw(w); });
@@ -355,7 +404,14 @@ void App::make_wire(InstrumentId instrument, int channel, int port)
 {
     bool real = port >= 0 && static_cast<size_t>(port) < probe_->ports().size();
     bool virt = is_virtual_port(port) && port_info(port) != nullptr;
-    if ((!real && !virt) || channel < 0) {
+    bool circuit = is_circuit_port(port) && port_info(port) != nullptr;
+    // A source of the audio strip feeds the analog inputs: the
+    // oscilloscope and the multimeter. Nothing else is pertinent there.
+    bool audio = is_audio_port(port) && port_info(port) != nullptr &&
+                 (instrument.kind == Instrument::Scope || instrument.kind == Instrument::Multimeter);
+    if ((!real && !virt && !circuit && !audio) || channel < 0) {
+        selected_port_ = -1;
+        offered_ = false;
         return;
     }
     // Pertinent only: a virtual port (an output) feeds an input instrument.
@@ -424,6 +480,32 @@ void App::offer_channel(InstrumentId instrument, int channel)
         unwire(instrument, channel);
         selected_port_ = port;
         return;
+    }
+    // The cable hangs from a source of the audio strip and this is an
+    // input of an instrument: the input listens to that source.
+    if (offered_ && offered_instrument_.kind == Instrument::Audio && instrument.kind != Instrument::Audio &&
+        instrument.kind != Instrument::Circuit) {
+        const InstrumentBase *held = find_instrument(offered_instrument_);
+        if (held && held->channel_drives(offered_channel_)) {
+            // make_wire refuses what is not pertinent and drops the cable.
+            make_wire(instrument, channel, audio_port_base + offered_channel_);
+            return;
+        }
+        // The cable hangs from an output of the computer: only the
+        // generator has something to play there.
+        if (instrument.kind != Instrument::Generator) {
+            cancel_wiring();
+            return;
+        }
+    }
+    // The cable of an instrument on a jack of the audio strip (the strip
+    // calls this for its jacks): the generator into an output, nothing else.
+    if (offered_ && instrument.kind == Instrument::Audio && offered_instrument_.kind != Instrument::Audio) {
+        const InstrumentBase *strip = find_instrument(instrument);
+        if (offered_instrument_.kind != Instrument::Generator || !strip || strip->channel_drives(channel)) {
+            cancel_wiring();
+            return;
+        }
     }
     // Two instrument ends: an output into an input makes a wire through the
     // output's virtual port; any other pair just moves the offer.
@@ -671,6 +753,74 @@ void App::pump_virtual_ports()
     }
 }
 
+bool App::output_spec(InstrumentId instrument, int channel, core::WaveSpec &spec, bool &on) const
+{
+    for (const VirtualPort &v : virtual_ports_) {
+        if (v.output == instrument && v.channel == channel) {
+            spec = v.spec;
+            on = v.on;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool App::output_current(InstrumentId instrument, int channel, float &amps) const
+{
+    int port = wired_port(instrument, channel);
+    if (!is_circuit_port(port)) {
+        return false;
+    }
+    for (const OpenInstrument &i : instruments_) {
+        if (i.instrument->kind() == Instrument::Circuit) {
+            return i.instrument->port_current(port, amps);
+        }
+    }
+    return false;
+}
+
+// ---- circuit ports: cables into the schematic ---------------------------
+
+void App::declare_circuit_port(int slot, const std::string &name)
+{
+    if (slot < 0 || name.empty()) {
+        return;
+    }
+    if (static_cast<size_t>(slot) >= circuit_ports_.size()) {
+        circuit_ports_.resize(static_cast<size_t>(slot) + 1);
+    }
+    core::PortInfo &info = circuit_ports_[static_cast<size_t>(slot)];
+    info.index = circuit_port_base + slot;
+    info.name = name;
+    info.pin.clear();
+    info.digital = true;
+    info.analog = true;
+    info.drivable = true;
+}
+
+void App::remove_circuit_port(int slot)
+{
+    if (slot < 0 || static_cast<size_t>(slot) >= circuit_ports_.size()) {
+        return;
+    }
+    const int port = circuit_port_base + slot;
+    std::vector<InstrumentId> touched;
+    for (size_t i = 0; i < wires_.size();) {
+        if (wires_[i].port == port) {
+            touched.push_back(wires_[i].instrument);
+            wires_.erase(wires_.begin() + static_cast<std::ptrdiff_t>(i));
+        } else {
+            i++;
+        }
+    }
+    circuit_ports_[static_cast<size_t>(slot)].name.clear();
+    for (InstrumentId id : touched) {
+        if (InstrumentBase *i = find_instrument(id)) {
+            i->wiring_changed();
+        }
+    }
+}
+
 // A click near a wire end grabs it: the end is unplugged and the cable
 // follows the mouse from its other end.
 void App::grab_near(ui::Window &window)
@@ -689,14 +839,7 @@ void App::grab_near(ui::Window &window)
     float r2 = grab_radius * grab_radius;
     for (const Wire &w : wires_) {
         // The port end.
-        const Anchor *p = nullptr;
-        if (is_virtual_port(w.port)) {
-            if (VirtualPort *v = virtual_port(w.port)) {
-                p = channel_anchor(v->output, v->channel);
-            }
-        } else if (w.port >= 0 && static_cast<size_t>(w.port) < port_anchors_.size()) {
-            p = &port_anchors_[static_cast<size_t>(w.port)];
-        }
+        const Anchor *p = port_anchor(w.port);
         if (p && p->valid && (p->x - mx) * (p->x - mx) + (p->y - my) * (p->y - my) <= r2) {
             InstrumentId in = w.instrument;
             int ch = w.channel;
@@ -732,11 +875,42 @@ void App::grab_near(ui::Window &window)
 void App::begin_anchors()
 {
     port_anchors_.assign(probe_->ports().size(), Anchor{});
+    circuit_anchors_.clear();
     channel_anchors_.clear();
+}
+
+const App::Anchor *App::port_anchor(int port)
+{
+    if (is_audio_port(port)) {
+        return audio_ ? channel_anchor(audio_->id(), port - audio_port_base) : nullptr;
+    }
+    if (is_circuit_port(port)) {
+        for (const auto &entry : circuit_anchors_) {
+            if (entry.first == port) {
+                return &entry.second;
+            }
+        }
+        return nullptr;
+    }
+    if (is_virtual_port(port)) {
+        VirtualPort *v = virtual_port(port);
+        return v ? channel_anchor(v->output, v->channel) : nullptr;
+    }
+    if (port >= 0 && static_cast<size_t>(port) < port_anchors_.size()) {
+        return &port_anchors_[static_cast<size_t>(port)];
+    }
+    return nullptr;
 }
 
 void App::anchor_port(int port, ui::Window &window, float local_x, float local_y)
 {
+    if (is_circuit_port(port) && !window.minimized()) {
+        int cx = 0;
+        int cy = 0;
+        window.position(cx, cy);
+        circuit_anchors_.emplace_back(port, Anchor{true, static_cast<float>(cx) + local_x, static_cast<float>(cy) + local_y});
+        return;
+    }
     if (port < 0 || static_cast<size_t>(port) >= port_anchors_.size() || window.minimized()) {
         return;
     }
@@ -854,14 +1028,7 @@ void App::update_overlays()
     };
 
     for (const Wire &w : wires_) {
-        const Anchor *p = nullptr;
-        if (is_virtual_port(w.port)) {
-            if (VirtualPort *v = virtual_port(w.port)) {
-                p = channel_anchor(v->output, v->channel);
-            }
-        } else if (w.port >= 0 && static_cast<size_t>(w.port) < port_anchors_.size()) {
-            p = &port_anchors_[static_cast<size_t>(w.port)];
-        }
+        const Anchor *p = port_anchor(w.port);
         const Anchor *c = channel_anchor(w.instrument, w.channel);
         if (!p || !p->valid || !c || !c->valid) {
             continue;
@@ -873,8 +1040,8 @@ void App::update_overlays()
     if ((selected_port_ >= 0 || offered_) && ui::platform_cursor(cx, cy)) {
         const Anchor *from = nullptr;
         uint32_t colour = 0xFFFFFFFFu;
-        if (selected_port_ >= 0 && static_cast<size_t>(selected_port_) < port_anchors_.size()) {
-            from = &port_anchors_[static_cast<size_t>(selected_port_)];
+        if (selected_port_ >= 0) {
+            from = port_anchor(selected_port_);   // a port of the probe, of the circuit or of the audio strip
             colour = ui::current_theme().led_warn;
         } else if (offered_) {
             from = channel_anchor(offered_instrument_, offered_channel_);
@@ -914,16 +1081,21 @@ void App::load_bench_settings()
         probe_kind_ = ProbeKind::Emulator;
     }
     wires_shown_ = j.value("wires_shown", true);
+    if (j.contains("audio") && j["audio"].is_object()) {
+        audio_settings_ = j["audio"];
+    }
     if (j.contains("rack") && j["rack"].is_object()) {
         rack_x_ = j["rack"].value("x", rack_x_);
         rack_y_ = j["rack"].value("y", rack_y_);
+        rack_on_top_ = j["rack"].value("on_top", false);
     }
     if (j.contains("instruments") && j["instruments"].is_array()) {
         for (const nlohmann::json &w : j["instruments"]) {
             Instrument kind;
             if (w.is_object() && instrument_from_name(w.value("name", ""), kind)) {
                 saved_instruments_.push_back(
-                    SavedWindow{InstrumentId{kind, w.value("instance", 0)}, w.value("x", 40), w.value("y", 280)});
+                    SavedWindow{InstrumentId{kind, w.value("instance", 0)}, w.value("x", 40), w.value("y", 280),
+                                w.value("on_top", false)});
             }
         }
     }
@@ -957,7 +1129,7 @@ void App::save_bench_settings()
         int x = 0;
         int y = 0;
         rack_window_->position(x, y);
-        j["rack"] = {{"x", x}, {"y", y}};
+        j["rack"] = {{"x", x}, {"y", y}, {"on_top", rack_window_->on_top()}};
     }
     j["instruments"] = nlohmann::json::array();
     for (OpenInstrument &i : instruments_) {
@@ -967,10 +1139,16 @@ void App::save_bench_settings()
         j["instruments"].push_back({{"name", instrument_name(i.instrument->kind())},
                                     {"instance", i.instrument->instance()},
                                     {"x", x},
-                                    {"y", y}});
+                                    {"y", y},
+                                    {"on_top", i.window->on_top()}});
         nlohmann::json inst;
         i.instrument->save(inst);
         save_settings(settings_name(i.instrument->id()), inst);
+    }
+    if (audio_) {
+        nlohmann::json audio;
+        audio_->save(audio);
+        j["audio"] = audio;
     }
     j["wires"] = nlohmann::json::array();
     for (const Wire &w : wires_) {
@@ -1083,6 +1261,62 @@ void App::write_bench_capture(const std::string &path)
     }
 }
 
+// The windows in two columns, none over another, narrow enough to stay on
+// one monitor (windows on monitors of different scale are drawn at
+// different sizes), and so that the cables are short: on the left the
+// instruments whose jacks are on their right side (oscilloscope, logic
+// analyzer); on the right the rack, the circuit bench and the instruments
+// whose jacks are on their left side (generator, supply, multimeter). With a
+// circuit bench open the rack goes under the left column, out of the way of
+// the cables between the schematic and the instruments.
+void App::tile_windows()
+{
+    const int origin = 40;
+    const int gap = 24;
+    const int column_gap = 60;
+    std::vector<ui::Window *> columns[2];
+    const bool circuit = instrument_open(Instrument::Circuit);
+    if (rack_window_ && !circuit) {
+        columns[1].push_back(rack_window_.get());
+    }
+    for (OpenInstrument &i : instruments_) {
+        Instrument kind = i.instrument->kind();
+        if (kind == Instrument::Scope || kind == Instrument::Logic) {
+            columns[0].push_back(i.window.get());
+        }
+    }
+    for (OpenInstrument &i : instruments_) {
+        if (i.instrument->kind() == Instrument::Circuit) {
+            columns[1].push_back(i.window.get());
+        }
+    }
+    for (OpenInstrument &i : instruments_) {
+        Instrument kind = i.instrument->kind();
+        if (kind == Instrument::Generator || kind == Instrument::Supply || kind == Instrument::Multimeter) {
+            columns[1].push_back(i.window.get());
+        }
+    }
+    if (rack_window_ && circuit) {
+        columns[0].push_back(rack_window_.get());
+    }
+    int x = origin;
+    for (const std::vector<ui::Window *> &column : columns) {
+        int y = origin;
+        int column_width = 0;
+        for (ui::Window *window : column) {
+            int width = 0;
+            int height = 0;
+            window->size(width, height);
+            window->set_bounds(x, y, width, height);
+            y += height + gap;
+            column_width = std::max(column_width, width);
+        }
+        if (column_width > 0) {
+            x += column_width + column_gap;
+        }
+    }
+}
+
 // ---- frame loop -----------------------------------------------------------
 
 // Once per frame: drain the probe into the port state and the instruments,
@@ -1113,10 +1347,19 @@ void App::pump_probe()
     }
     pump_virtual_ports();   // outputs wired straight into inputs
     for (OpenInstrument &i : instruments_) {
+        i.instrument->produce(virtual_clock_ns_, events_, analog_);   // the circuit, on the same time line
+    }
+    if (audio_) {
+        audio_->produce(virtual_clock_ns_, events_, analog_);   // jack to jack on the rack
+    }
+    for (OpenInstrument &i : instruments_) {
         i.instrument->feed(events_);
         if (!analog_.empty()) {
             i.instrument->feed_analog(analog_);
         }
+    }
+    if (audio_ && !analog_.empty()) {
+        audio_->feed_analog(analog_);   // the outputs of the computer play what they are wired to
     }
     if (auto *emu = dynamic_cast<probes::EmulatorProbe *>(probe_.get())) {
         functions_.clear();
@@ -1157,8 +1400,20 @@ int App::run()
     if (theme_from_command_line_) {
         ui::set_theme(theme_);
     }
+    audio_ = std::make_unique<AudioPorts>(*this);
+    if (screenshots_.empty()) {
+        audio_->load(audio_settings_);
+    }
+    if (!audio_patches_.empty()) {
+        nlohmann::json patches = nlohmann::json::array();
+        for (const auto &entry : audio_patches_) {
+            patches.push_back({entry.first - 1, entry.second - 1});
+        }
+        audio_->load({{"patches", patches}});
+    }
     open_rack();
     if (!rack_window_) {
+        audio_.reset();
         ui::platform_shutdown();
         return 1;
     }
@@ -1224,6 +1479,11 @@ int App::run()
                 v.level = 0;
             }
         }
+        // The windows fit themselves in their first frames; then they are tiled.
+        if (tile_ && !tiled_ && std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count() >= 1.5) {
+            tile_windows();
+            tiled_ = true;
+        }
         pump_probe();
         begin_anchors();
         if (!screenshots_.empty()) {
@@ -1285,12 +1545,14 @@ int App::run()
             save_bench_settings();
         }
         // A closed instrument keeps its wires out of the way: they are removed.
+        bool circuit_closed = false;
         for (OpenInstrument &i : instruments_) {
             if (i.window->close_requested()) {
                 InstrumentId id = i.instrument->id();
                 wires_.erase(std::remove_if(wires_.begin(), wires_.end(),
                                             [&](const Wire &w) { return w.instrument == id; }),
                              wires_.end());
+                circuit_closed = circuit_closed || id.kind == Instrument::Circuit;
             }
         }
         instruments_.erase(std::remove_if(instruments_.begin(), instruments_.end(),
@@ -1298,6 +1560,18 @@ int App::run()
                                               return i.window->close_requested();
                                           }),
                            instruments_.end());
+        if (circuit_closed) {
+            // The cables that were plugged into the schematic go with it.
+            wires_.erase(std::remove_if(wires_.begin(), wires_.end(), [](const Wire &w) { return is_circuit_port(w.port); }),
+                         wires_.end());
+            circuit_ports_.clear();
+            for (OpenInstrument &i : instruments_) {
+                i.instrument->wiring_changed();
+            }
+            if (audio_) {
+                audio_->wiring_changed();
+            }
+        }
     }
 
     if (screenshots_.empty()) {
@@ -1306,6 +1580,7 @@ int App::run()
     probe_->disconnect();
     overlays_.clear();
     instruments_.clear();
+    audio_.reset();
     rack_window_.reset();
     ui::platform_shutdown();
     return 0;

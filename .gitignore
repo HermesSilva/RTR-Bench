@@ -4,3 +4,7 @@ build-*/
 .cache/
 *.user
 compile_commands.json
+
+# Third-party installers fetched by scripts (not ours to redistribute)
+extras/vb-cable/*
+!extras/vb-cable/README.md

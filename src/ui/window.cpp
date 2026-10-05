@@ -400,6 +400,12 @@ bool Window::focused() const
 #endif
 }
 
+void Window::set_on_top(bool on_top)
+{
+    on_top_ = on_top;
+    glfwSetWindowAttrib(window_, GLFW_FLOATING, on_top ? GLFW_TRUE : GLFW_FALSE);
+}
+
 void Window::show(bool visible)
 {
     if (visible) {

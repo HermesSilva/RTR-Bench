@@ -2,6 +2,7 @@
 #include "ui/chassis.h"
 
 #include <algorithm>
+#include <cstdint>
 
 #include "ui/fonts.h"
 #include "ui/theme.h"
@@ -53,9 +54,12 @@ void draw_screw(ImDrawList *draw, ImVec2 centre, const Theme &t, float scale)
     draw->AddLine(centre - ImVec2(r * 0.6f, 0), centre + ImVec2(r * 0.6f, 0), t.chassis_shadow, 1.2f * scale);
 }
 
-// Window control drawn on the panel (close, minimize). Returns true on click.
+// Window control drawn on the panel (close, minimize, stay on top). Returns
+// true on click. A lit control shows its glyph in the run colour.
+enum class Glyph : uint8_t { Close, Minimize, Pin };
+
 bool panel_button(ImDrawList *draw, const char *id, ImVec2 centre, float radius,
-                  uint32_t hover_colour, const Theme &t, bool close_glyph, float scale)
+                  uint32_t hover_colour, const Theme &t, Glyph kind, float scale, bool lit = false)
 {
     ImGui::SetCursorScreenPos(centre - ImVec2(radius, radius));
     ImGui::InvisibleButton(id, ImVec2(radius * 2, radius * 2));
@@ -63,13 +67,22 @@ bool panel_button(ImDrawList *draw, const char *id, ImVec2 centre, float radius,
     bool clicked = ImGui::IsItemClicked();
     draw->AddCircleFilled(centre, radius, hovered ? hover_colour : t.key, 24);
     draw->AddCircle(centre, radius, t.chassis_shadow, 24, 1.0f * scale);
-    uint32_t glyph = hovered ? t.key_text : t.label_dim;
+    uint32_t glyph = lit ? t.led_run : (hovered ? t.key_text : t.label_dim);
     float g = radius * 0.42f;
-    if (close_glyph) {
+    switch (kind) {
+    case Glyph::Close:
         draw->AddLine(centre - ImVec2(g, g), centre + ImVec2(g, g), glyph, 1.6f * scale);
         draw->AddLine(centre - ImVec2(g, -g), centre + ImVec2(g, -g), glyph, 1.6f * scale);
-    } else {
+        break;
+    case Glyph::Minimize:
         draw->AddLine(centre - ImVec2(g, 0), centre + ImVec2(g, 0), glyph, 1.6f * scale);
+        break;
+    case Glyph::Pin:
+        // A push pin: the head, its collar and the needle.
+        draw->AddCircleFilled(centre - ImVec2(0, g * 0.55f), g * 0.62f, glyph, 14);
+        draw->AddLine(centre + ImVec2(-g * 0.9f, g * 0.1f), centre + ImVec2(g * 0.9f, g * 0.1f), glyph, 1.6f * scale);
+        draw->AddLine(centre + ImVec2(0, g * 0.1f), centre + ImVec2(0, g * 1.25f), glyph, 1.4f * scale);
+        break;
     }
     return clicked;
 }
@@ -158,11 +171,16 @@ ChassisFrame begin_chassis(Window &window, const ChassisSpec &spec)
     float radius = 9.0f * s;
     ImVec2 close_c(body_max.x - corner * 0.6f - radius, header_min.y + header_h * 0.5f);
     ImVec2 min_c = close_c - ImVec2(radius * 2.0f + 8.0f * s, 0);
-    if (panel_button(draw, "##close", close_c, radius, t.close_hover, t, true, s)) {
+    ImVec2 pin_c = min_c - ImVec2(radius * 2.0f + 8.0f * s, 0);
+    if (panel_button(draw, "##close", close_c, radius, t.close_hover, t, Glyph::Close, s)) {
         window.request_close();
     }
-    if (panel_button(draw, "##minimize", min_c, radius, t.key_hover, t, false, s)) {
+    if (panel_button(draw, "##minimize", min_c, radius, t.key_hover, t, Glyph::Minimize, s)) {
         window.minimize();
+    }
+    // Stay on top: the window keeps above every other one while the pin is lit.
+    if (panel_button(draw, "##on-top", pin_c, radius, t.key_hover, t, Glyph::Pin, s, window.on_top())) {
+        window.set_on_top(!window.on_top());
     }
 
     // Screws in the corners of the panel.

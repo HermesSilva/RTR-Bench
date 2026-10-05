@@ -31,7 +31,8 @@ the requirements of the area you touch before changing anything.
   with `.clang-tidy` on our sources. Third-party code (fetched by CMake) is
   exempt and never edited in place.
 - Layout: `src/app` (main, rack, settings), `src/core` (Probe, buffers,
-  measurements, recording), `src/probes` (emulator, m2k, replay), `src/ui`
+  measurements, recording, the circuit and its netlist), `src/sim` (the
+  ngspice session), `src/probes` (emulator, m2k, replay), `src/ui`
   (chassis, knobs, keys, screen, wires, overlay), `src/instruments/<name>`,
   `tests/`, `resources/` (fonts embedded at build time).
 - Acquisition in its own thread; the interface thread never blocks on the
@@ -52,17 +53,25 @@ the requirements of the area you touch before changing anything.
 - `scripts\build.ps1` (Windows, clang + Ninja) and `scripts/build.sh`
   (Linux). Both must pass before a commit; Linux is checked in WSL Ubuntu.
 - `scripts\test.ps1` / `scripts/test.sh` run the windowless tests (Catch2).
+- The circuit bench needs the ngspice shared library next to the executable
+  (`scripts\get-ngspice.ps1`); `build\rtr-sim-check.exe` runs two circuits
+  through it and must report `running` at about 1.00x.
+- Nothing interpreted runs with the product: no Python, no script files, not
+  even ngspice's own (`spinit`, `.control`). Scripts are for build and tools.
 - A change in the emulator side (`rtr_scope.c`) belongs to the
   `HermesSilva/qemu-pi4` fork, not to this repository.
 
 ## Releases
 
 - **Every release updates the screenshots** in `docs/screenshots/` for every
-  interface that changed (rack, each instrument, each theme where relevant)
-  and the README shows them. Use `scripts\shots.ps1` (the demo scenes, three
-  themes) and `scripts\screenshot.ps1` (emulator scenes) so the captures
-  have the same size and theme set. A release with changed screens and old
-  screenshots is not finished.
+  interface that changed (rack, each instrument, the circuit bench) and the
+  README shows them. Use `scripts\shots.ps1` (the demo scenes) and
+  `scripts\screenshot.ps1` (emulator scenes). **Dark theme only**, and
+  **every image is opened and checked before the commit**: no window over
+  another (the composite scenes use `--tile on`), the circuit loaded, the
+  signals on the screens. A window that falls off the monitor moves to
+  another one and is drawn at its scale: keep the scenes within one monitor.
+  A release with changed screens and old screenshots is not finished.
 - Version is `0.1.<build>`: `build-number.txt` is incremented by every
   local build (`scripts\build.ps1`, `scripts/build.sh`) and committed; CI
   builds the committed number (`-KeepNumber` / `RTR_KEEP_BUILD_NUMBER=1`)

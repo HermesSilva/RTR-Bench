@@ -35,6 +35,20 @@ void format_volts(char *text, size_t text_size, char *unit, size_t unit_size, do
     }
 }
 
+void format_amps(char *text, size_t text_size, char *unit, size_t unit_size, double amps)
+{
+    if (std::fabs(amps) < 1e-3) {
+        std::snprintf(text, text_size, "%.1f", amps * 1e6);
+        std::snprintf(unit, unit_size, "uA");
+    } else if (std::fabs(amps) < 1.0) {
+        std::snprintf(text, text_size, "%.3f", amps * 1e3);
+        std::snprintf(unit, unit_size, "mA");
+    } else {
+        std::snprintf(text, text_size, "%.3f", amps);
+        std::snprintf(unit, unit_size, "A");
+    }
+}
+
 void format_hertz(char *text, size_t text_size, char *unit, size_t unit_size, double hz)
 {
     if (hz >= 1e6) {
@@ -91,6 +105,15 @@ bool Multimeter::Lead::volts_at(int64_t ns, float &v) const
     return true;
 }
 
+bool Multimeter::channel_wants_current(int channel) const
+{
+    size_t tip = static_cast<size_t>(channel / 2);
+    if (channel < 0 || tip >= tips_.size()) {
+        return false;
+    }
+    return tips_[tip]->function == Function::AmpsDC || tips_[tip]->function == Function::AmpsAC;
+}
+
 std::string Multimeter::channel_name(int channel) const
 {
     return "TIP " + std::to_string(channel / 2 + 1) + (channel % 2 ? " COM" : "");
@@ -99,6 +122,15 @@ std::string Multimeter::channel_name(int channel) const
 Multimeter::Multimeter(App &app) : app_(app)
 {
     add_tip();
+    // "--dmm 1=10": tip 1 starts on function number 10 (A DC).
+    for (const auto &[n, function] : app_.multimeter_functions()) {
+        while (static_cast<int>(tips_.size()) < n && static_cast<int>(tips_.size()) < max_tips) {
+            add_tip();
+        }
+        if (n >= 1 && n <= static_cast<int>(tips_.size())) {
+            tips_[static_cast<size_t>(n - 1)]->function = static_cast<Function>(std::clamp(function, 0, functions - 1));
+        }
+    }
     last_update_ = std::chrono::steady_clock::now();
 }
 
@@ -305,6 +337,21 @@ Multimeter::Reading Multimeter::measure(const Tip &t) const
     }
     int64_t t1 = latest_ns_;
     int64_t t0 = t1 - reading_window_ns;
+    if (t.function == Function::AmpsDC || t.function == Function::AmpsAC) {
+        // In a circuit the tip receives the current through the meter, in
+        // amperes; anywhere else there is no current to read.
+        if (!App::is_circuit_port(t.tip.port)) {
+            return r;
+        }
+        VoltStats st = volt_stats(t, t0, t1);
+        if (!st.valid) {
+            return r;
+        }
+        r.valid = true;
+        r.value = t.function == Function::AmpsDC ? st.mean : std::sqrt(std::max(0.0, st.rms * st.rms - st.mean * st.mean));
+        format_amps(r.text, sizeof(r.text), r.unit, sizeof(r.unit), r.value);
+        return r;
+    }
     if (t.function == Function::VoltsDC || t.function == Function::VoltsAC || t.function == Function::VoltsPP) {
         VoltStats st = volt_stats(t, t0, t1);
         if (!st.valid) {
@@ -396,6 +443,8 @@ Multimeter::Reading Multimeter::measure(const Tip &t) const
     case Function::VoltsDC:
     case Function::VoltsAC:
     case Function::VoltsPP:
+    case Function::AmpsDC:
+    case Function::AmpsAC:
         break;
     }
     return r;
@@ -510,6 +559,7 @@ void Multimeter::draw(ui::Window &window)
         static const ui::DropdownItem items[functions] = {
             {"V DC", "VOLTAGE"}, {"V AC", "VOLTAGE"}, {"V PP", "VOLTAGE"},  {"FREQ", "TIMING"}, {"PERIOD", "TIMING"},
             {"DUTY", "TIMING"},  {"WIDTH", "TIMING"}, {"COUNT", "TIMING"}, {"LEVEL", "LOGIC"},
+            {"A DC", "CURRENT"}, {"A AC", "CURRENT"},
         };
         std::snprintf(id, sizeof(id), "##fn%d", i);
         int chosen = ui::dropdown(id, ImVec2(rx, cy - key_h * 0.5f), ImVec2(78.0f * s, key_h), items, functions,
@@ -518,6 +568,10 @@ void Multimeter::draw(ui::Window &window)
             tip.function = static_cast<Function>(chosen);
             tip.min = tip.max = tip.sum = 0.0;
             tip.samples = 0;
+            // Volts and amperes do not mix in the window of a reading.
+            tip.tip.reset();
+            tip.com.reset();
+            tip.shown = Reading{};
         }
         rx += 78.0f * s + gap;
         // The two jacks: the tip and its COM, each with its port name under it.

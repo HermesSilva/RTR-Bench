@@ -74,6 +74,12 @@ struct WaveSpec {
     double mod_depth = 0.5;         // 0..1 (AM depth, FM deviation as a fraction, PM in half-turns)
 };
 
+// The voltage of a wave `seconds` after its start, as a function of time
+// alone (a simulator asks for any instant, in any order). Digital kinds are
+// 0 V and `logic_high_volts`.
+constexpr double logic_high_volts = 3.3;
+double waveform_volts(const WaveSpec &spec, double seconds);
+
 struct ProbeStats {
     uint64_t events = 0;
     uint64_t bytes = 0;

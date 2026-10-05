@@ -9,12 +9,14 @@ Fetched by CMake at configure time (`CMakeLists.txt` pins the versions):
 | [ImPlot](https://github.com/epezent/implot) | plotting on the instrument screens | MIT |
 | [nlohmann/json](https://github.com/nlohmann/json) | settings files | MIT |
 | [Catch2](https://github.com/catchorg/Catch2) | tests | BSL-1.0 |
+| [miniaudio](https://miniaud.io/) | audio devices of the computer (the AUDIO jacks of the rack) | public domain or MIT-0 |
 
 Optional, from the system:
 
 | Component | Use | License |
 |-----------|-----|---------|
 | [libm2k](https://github.com/analogdevicesinc/libm2k) | ADALM2000 probe (dynamic library) | LGPL-2.1 |
+| [ngspice](https://ngspice.sourceforge.io/) | circuit simulator of the circuit bench, loaded at run time (`ngspice.dll` / `libngspice.so.0`; `scripts\get-ngspice.ps1` fetches it) | BSD-3-Clause, with parts under LGPL-2.1, MPL-2.0 and public domain (its `COPYING`) |
 
 Fonts embedded in the executable (`resources/fonts`):
 

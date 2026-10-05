@@ -38,8 +38,12 @@ public:
     void save(nlohmann::json &out) const override;
     void load(const nlohmann::json &in) override;
 
-    enum class Function { VoltsDC, VoltsAC, VoltsPP, Frequency, Period, Duty, Width, Count, Level };
-    static constexpr int functions = 9;
+    // Saved by number: new functions go at the end.
+    enum class Function { VoltsDC, VoltsAC, VoltsPP, Frequency, Period, Duty, Width, Count, Level, AmpsDC, AmpsAC };
+    static constexpr int functions = 11;
+    // The ampere functions work in a circuit: the meter goes in series
+    // between the tip and COM (the bench ground when COM is free).
+    bool channel_wants_current(int channel) const override;
     static constexpr int max_tips = 8;
 
 private:

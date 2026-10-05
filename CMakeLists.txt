@@ -52,6 +52,14 @@ FetchContent_Declare(json
 
 FetchContent_MakeAvailable(glfw imgui implot json)
 
+# miniaudio is one header: only its sources are wanted, not its own build.
+FetchContent_Declare(miniaudio
+    GIT_REPOSITORY https://github.com/mackron/miniaudio.git
+    GIT_TAG 0.11.21
+    GIT_SHALLOW TRUE
+    SOURCE_SUBDIR no-cmake-project)
+FetchContent_MakeAvailable(miniaudio)
+
 # Dear ImGui and ImPlot ship no CMake project: one static library for both,
 # with the GLFW + OpenGL 3 backends. Third-party code: no warnings, no tidy.
 add_library(imgui STATIC
@@ -84,6 +92,8 @@ add_library(rtr-core STATIC
     src/core/analog_trace.cpp
     src/core/scope_engine.cpp
     src/core/math_formula.cpp
+    src/core/circuit.cpp
+    src/sim/ngspice.cpp
     src/probes/tcp_client.cpp
     src/probes/emulator_probe.cpp
     src/probes/demo_probe.cpp)
@@ -94,7 +104,15 @@ if(WIN32)
     target_link_libraries(rtr-core PUBLIC ws2_32)
 endif()
 find_package(Threads REQUIRED)
-target_link_libraries(rtr-core PUBLIC Threads::Threads)
+target_link_libraries(rtr-core PUBLIC Threads::Threads ${CMAKE_DL_LIBS})   # ngspice is loaded at run time
+
+# The audio of the computer (the AUDIO jacks of the rack). Third-party code:
+# its own translation unit, no warnings, no tidy.
+add_library(miniaudio STATIC src/audio/miniaudio_impl.c)
+target_include_directories(miniaudio SYSTEM PUBLIC ${miniaudio_SOURCE_DIR})
+if(UNIX)
+    target_link_libraries(miniaudio PUBLIC ${CMAKE_DL_LIBS} Threads::Threads m)
+endif()
 
 # Fonts embedded in the executable (see cmake/embed.cmake).
 set(RTR_FONTS Inter-Regular Inter-SemiBold JetBrainsMono-Regular DSEG7Classic-Regular)
@@ -124,6 +142,8 @@ add_executable(rtr-bench
     src/instruments/generator/generator.cpp
     src/instruments/supply/supply.cpp
     src/instruments/dmm/dmm.cpp
+    src/instruments/circuit/circuit.cpp
+    src/audio/audio_ports.cpp
     src/ui/theme.cpp
     src/ui/window.cpp
     src/ui/chassis.cpp
@@ -131,7 +151,7 @@ add_executable(rtr-bench
     src/ui/wire.cpp
     src/ui/png.cpp)
 target_include_directories(rtr-bench PRIVATE src)
-target_link_libraries(rtr-bench PRIVATE rtr-core imgui glfw OpenGL::GL nlohmann_json::nlohmann_json)
+target_link_libraries(rtr-bench PRIVATE rtr-core imgui glfw OpenGL::GL nlohmann_json::nlohmann_json miniaudio)
 target_compile_definitions(rtr-bench PRIVATE
     RTR_BENCH_VERSION="${PROJECT_VERSION}"
     $<$<PLATFORM_ID:Windows>:NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS>)
@@ -164,6 +184,10 @@ endif()
 # Console diagnostic: prints what the emulator probe sends.
 add_executable(rtr-probe-dump tools/probe_dump.cpp)
 target_link_libraries(rtr-probe-dump PRIVATE rtr-core)
+
+# Console diagnostic: runs two circuits through the ngspice session.
+add_executable(rtr-sim-check tools/sim_check.cpp)
+target_link_libraries(rtr-sim-check PRIVATE rtr-core)
 
 if(RTR_BENCH_TIDY)
     find_program(CLANG_TIDY_EXE NAMES clang-tidy)

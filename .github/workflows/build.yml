@@ -32,7 +32,10 @@ jobs:
         run: |
           $version = (Get-Content build-number.txt -Raw).Trim()
           New-Item -ItemType Directory -Path dist | Out-Null
-          Copy-Item build\rtr-bench.exe, build\rtr-probe-dump.exe, LICENSE, THIRD_PARTY.md, README.md dist\
+          Copy-Item build\rtr-bench.exe, build\rtr-probe-dump.exe, build\rtr-sim-check.exe, LICENSE, THIRD_PARTY.md, README.md dist\
+          # The circuit simulator the circuit bench loads at run time, and the example circuits.
+          scripts\get-ngspice.ps1 -Into dist
+          Copy-Item docs\circuits dist\circuits -Recurse
           Compress-Archive -Path dist\* -DestinationPath "rtr-bench-windows-x64.zip"
           "RTR_VERSION=0.1.$version" >> $env:GITHUB_ENV
       - uses: actions/upload-artifact@v4
@@ -56,7 +59,8 @@ jobs:
       - name: Package
         run: |
           mkdir dist
-          cp build/rtr-bench build/rtr-probe-dump LICENSE THIRD_PARTY.md README.md dist/
+          cp build/rtr-bench build/rtr-probe-dump build/rtr-sim-check LICENSE THIRD_PARTY.md README.md dist/
+          cp -r docs/circuits dist/circuits
           tar -C dist -czf rtr-bench-linux-x64.tar.gz .
       - uses: actions/upload-artifact@v4
         with:
@@ -86,6 +90,8 @@ jobs:
             - `rtr-bench-linux-x64.tar.gz`: Linux x64 (X11 or Wayland, OpenGL 3.3)
 
             Portable: unpack anywhere and run; settings go to a `.RTR-Bench` folder next to the executable.
+            The Windows package carries ngspice, the simulator of the circuit bench; on Linux install the
+            shared library of the distribution (`libngspice0` on Debian and Ubuntu).
           files: |
             artifacts/rtr-bench-windows-x64/rtr-bench-windows-x64.zip
             artifacts/rtr-bench-linux-x64/rtr-bench-linux-x64.tar.gz

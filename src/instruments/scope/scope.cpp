@@ -343,7 +343,17 @@ void Scope::draw(ui::Window &window)
             ts.digital = &source.trace;
         }
     }
-    engine_.update(ts, latest_ns_);
+    // The screen ends where every analog channel still has samples: a source
+    // that delivers a frame behind the others (a simulated circuit, the audio
+    // of the computer) would otherwise be off the right edge at fast time
+    // bases. A channel that stopped for longer does not hold the screen back.
+    int64_t screen_end = latest_ns_;
+    for (const Channel &c : ch_) {
+        if (c.port >= 0 && c.is_analog && !c.analog.empty() && latest_ns_ - c.analog.last_ns() < 200000000LL) {
+            screen_end = std::min(screen_end, c.analog.last_ns());
+        }
+    }
+    engine_.update(ts, screen_end);
 
     float controls_w = 300.0f * s;
     ImVec2 screen_min = frame.panel_min;
@@ -445,25 +455,6 @@ void Scope::draw_screen(ui::Window &window, ImVec2 min, ImVec2 max)
                     draw_analog(ch, c, draw, s);
                 }
             }
-            // Right click on the analog area selects the trace nearest to the mouse.
-            ImVec2 mouse = ImGui::GetIO().MousePos;
-            if (ImGui::IsMouseClicked(ImGuiMouseButton_Right) && ImGui::IsWindowHovered() && mouse.x >= analog_min_.x &&
-                mouse.x <= analog_max_.x && mouse.y >= analog_min_.y && mouse.y <= analog_max_.y) {
-                int64_t at = view.t0 + static_cast<int64_t>(static_cast<double>(mouse.x - screen_min_.x) /
-                                                            static_cast<double>(w) * static_cast<double>(view.t1 - view.t0));
-                float best = 1e9f;
-                for (int c = 0; c < all_channels; c++) {
-                    const Channel &ch = ch_[static_cast<size_t>(c)];
-                    float v = 0.0f;
-                    if (wired_or_enabled(ch) && ch.is_analog && ch.visible && ch.analog.value_at(at, v)) {
-                        float d = std::fabs(volts_to_y(ch, v) - mouse.y);
-                        if (d < best) {
-                            best = d;
-                            selected_ = c;
-                        }
-                    }
-                }
-            }
             if (digital_count > 0) {
                 draw->AddLine(ImVec2(screen_min_.x, analog_max_.y), ImVec2(screen_max_.x, analog_max_.y),
                               t.graticule_axis, 1.0f);
@@ -486,8 +477,8 @@ void Scope::draw_screen(ui::Window &window, ImVec2 min, ImVec2 max)
                 std::snprintf(lane_id, sizeof(lane_id), "##lane%d", c);
                 ImGui::SetCursorScreenPos(ImVec2(screen_min_.x, top));
                 ImGui::InvisibleButton(lane_id, ImVec2(screen_max_.x - screen_min_.x, lane_h));
-                if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
-                    selected_ = c;
+                if (ImGui::IsItemClicked()) {
+                    selected_ = c;   // a click on the lane selects its channel
                 }
             }
             lane++;
@@ -589,13 +580,13 @@ void Scope::draw_screen(ui::Window &window, ImVec2 min, ImVec2 max)
             std::snprintf(text, sizeof(text), "%s --", tag);
         }
         {
-            // The tag is clickable: either button selects the channel.
+            // The tag is clickable: a click selects the channel.
             float tag_w = mono_width(text);
             char tag_id[16];
             std::snprintf(tag_id, sizeof(tag_id), "##tag%d", c);
             ImGui::SetCursorScreenPos(ImVec2(x - 3.0f * s, ry - 1.0f * s));
             ImGui::InvisibleButton(tag_id, ImVec2(tag_w + 6.0f * s, line_h));
-            if (ImGui::IsItemClicked(ImGuiMouseButton_Right) || ImGui::IsItemClicked()) {
+            if (ImGui::IsItemClicked()) {
                 selected_ = c;
             }
         }
@@ -992,6 +983,7 @@ void Scope::draw_controls(ui::Window &window, ImVec2 min, ImVec2 max)
                     engine_.settings.trigger_channel == c, ui::channel_colour(c), s)) {
             engine_.settings.trigger_channel = c;
             engine_.clear();
+            selected_ = c;   // the channel just named is the one the knobs act on
         }
     }
     y += key_h + gap;
@@ -1061,9 +1053,6 @@ void Scope::draw_controls(ui::Window &window, ImVec2 min, ImVec2 max)
         // grabbed and plugged at the jack beside it.
         if (ui::key(id, label, ImVec2(cx, y), ImVec2(kw, key_h), lit, ui::channel_colour(c), s)) {
             selected_ = c;
-        }
-        if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
-            selected_ = c;   // right click: the channel the H and V knobs control
         }
         if (selected_ == c) {
             draw->AddRect(ImVec2(cx - 2.0f * s, y - 2.0f * s), ImVec2(cx + kw + 2.0f * s, y + key_h + 2.0f * s),

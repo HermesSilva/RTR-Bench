@@ -32,7 +32,7 @@ public:
 
     static constexpr int max_outputs = 6;
     static constexpr float logic_threshold = 1.8f;
-    static constexpr float volts_max = 5.0f;
+    static constexpr float volts_max = 30.0f;
 
 private:
     struct Output {

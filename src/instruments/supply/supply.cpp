@@ -50,7 +50,7 @@ void Supply::remove_output(int index)
         return;
     }
     Output &o = *outputs_[static_cast<size_t>(index)];
-    if (o.port >= 0) {
+    if (o.port >= 0 && !App::is_circuit_port(o.port)) {
         app_.probe().drive(o.port, 0);
     }
     app_.unwire(this->id(), index);
@@ -71,7 +71,7 @@ void Supply::wiring_changed()
         Output &o = *outputs_[i];
         int port = app_.wired_port(this->id(), static_cast<int>(i));
         if (port != o.port) {
-            if (o.port >= 0) {
+            if (o.port >= 0 && !App::is_circuit_port(o.port)) {
                 app_.probe().drive(o.port, 0);
             }
             o.port = port;
@@ -83,8 +83,8 @@ void Supply::wiring_changed()
 void Supply::apply(Output &o)
 {
     o.dirty = false;
-    if (o.port < 0) {
-        return;
+    if (o.port < 0 || App::is_circuit_port(o.port)) {
+        return;   // a circuit reads what the output publishes
     }
     const core::PortInfo *info = app_.port_info(o.port);
     if (!info || !info->drivable || !app_.probe().capabilities().drive) {
@@ -216,7 +216,11 @@ void Supply::draw(ui::Window &window)
         float shown = o.on ? o.volts : 0.0f;
         std::snprintf(volts, sizeof(volts), "%.2f", static_cast<double>(shown));
         display(volts, "V", "VOLTAGE", o.on ? colour : t.readout_dim, 94.0f * s);
-        display("0.000", "A", "CURRENT", o.on ? colour : t.readout_dim, 94.0f * s);
+        char amps_text[16];
+        float amps = 0.0f;
+        bool measured = o.on && app_.output_current(this->id(), i, amps);
+        std::snprintf(amps_text, sizeof(amps_text), "%.3f", static_cast<double>(measured ? amps : 0.0f));
+        display(amps_text, "A", "CURRENT", o.on ? colour : t.readout_dim, 94.0f * s);
         // The set voltage, small, under the SET knob.
         char set_text[24];
         std::snprintf(set_text, sizeof(set_text), "%.1f V", static_cast<double>(o.volts));
@@ -228,7 +232,8 @@ void Supply::draw(ui::Window &window)
         }
         std::snprintf(id, sizeof(id), "##out%d", i);
         if (ui::key(id, o.on ? "ON" : "OFF", ImVec2(rx, cy - key_h * 0.5f), ImVec2(74.0f * s, key_h), o.on, t.led_run, s,
-                    (o.port >= 0 && drivable && can_drive) || app_.port_wire_colour(vport) != 0)) {
+                    (o.port >= 0 && drivable && can_drive) || App::is_circuit_port(o.port) ||
+                        app_.port_wire_colour(vport) != 0)) {
             o.on = !o.on;
             o.dirty = true;
         }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "core/probe.h"
 
+#include <cmath>
+
 namespace core {
 
 const char *waveform_name(Waveform kind)
@@ -75,6 +77,64 @@ const char *waveform_group(Waveform kind)
 bool waveform_is_analog(Waveform kind)
 {
     return static_cast<int>(kind) >= static_cast<int>(Waveform::Sine);
+}
+
+double waveform_volts(const WaveSpec &s, double t)
+{
+    const double two_pi = 6.28318530717958647692;
+    auto frac = [](double v) { return v - std::floor(v); };
+    const double mod = std::sin(two_pi * s.mod_freq_hz * t);
+    const double p = frac(s.freq_hz * t);
+    switch (s.kind) {
+    case Waveform::Off:
+    case Waveform::Low:
+        return 0.0;
+    case Waveform::High:
+        return logic_high_volts;
+    case Waveform::Clock:
+        return p < 0.5 ? logic_high_volts : 0.0;
+    case Waveform::Pwm:
+        return p < s.duty / 100.0 ? logic_high_volts : 0.0;
+    case Waveform::Burst:
+        // One burst per second, as on the other outputs.
+        return frac(t) * s.freq_hz < s.burst_count && p < 0.5 ? logic_high_volts : 0.0;
+    case Waveform::Sweep: {
+        // The phase is the integral of a frequency that ramps over one second.
+        double u = frac(t);
+        double cycles = s.freq_hz * u + 0.5 * (s.sweep_end_hz - s.freq_hz) * u * u;
+        return frac(cycles) < 0.5 ? logic_high_volts : 0.0;
+    }
+    case Waveform::Sine:
+        return s.amplitude_v * std::sin(two_pi * p) + s.offset_v;
+    case Waveform::AM:
+        return s.amplitude_v * (1.0 + s.mod_depth * mod) / (1.0 + s.mod_depth) * std::sin(two_pi * p) + s.offset_v;
+    case Waveform::FM: {
+        double swing = s.mod_freq_hz > 0.0 ? s.freq_hz * s.mod_depth / (two_pi * s.mod_freq_hz) : 0.0;
+        double cycles = s.freq_hz * t - swing * std::cos(two_pi * s.mod_freq_hz * t);
+        return s.amplitude_v * std::sin(two_pi * cycles) + s.offset_v;
+    }
+    case Waveform::PM:
+        return s.amplitude_v * std::sin(two_pi * (p + s.mod_depth * 0.5 * mod)) + s.offset_v;
+    case Waveform::Triangle:
+        return s.amplitude_v * (p < 0.5 ? 4.0 * p - 1.0 : 3.0 - 4.0 * p) + s.offset_v;
+    case Waveform::Sawtooth:
+        return s.amplitude_v * (2.0 * p - 1.0) + s.offset_v;
+    case Waveform::RampDown:
+        return s.amplitude_v * (1.0 - 2.0 * p) + s.offset_v;
+    case Waveform::Noise: {
+        // Held for 20 us, so that the same instant always has the same value.
+        auto n = static_cast<uint64_t>(t / 20e-6);
+        n = (n ^ (n >> 33)) * 0xFF51AFD7ED558CCDull;
+        n = (n ^ (n >> 33)) * 0xC4CEB9FE1A85EC53ull;
+        n ^= n >> 33;
+        return s.amplitude_v * (static_cast<double>(n & 0xFFFFFFu) / 8388607.5 - 1.0) + s.offset_v;
+    }
+    case Waveform::Dc:
+        return s.amplitude_v + s.offset_v;
+    case Waveform::PwmMod:
+        return (p < 0.5 + 0.45 * s.mod_depth * mod ? s.amplitude_v : -s.amplitude_v) + s.offset_v;
+    }
+    return 0.0;
 }
 
 // Probes without analog outputs get the digital kinds through the pattern

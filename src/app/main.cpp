@@ -14,12 +14,18 @@ namespace {
 const char *usage =
     "usage: rtr-bench [options]\n"
     "  --probe NAME             probe to start with: emulator (default) or demo\n"
-    "  --open NAME              open an instrument at start (scope, logic, gen, psu, dmm)\n"
+    "  --open NAME              open an instrument at start (scope, logic, gen, psu, dmm, lab)\n"
     "  --gen N=on               output N of the generator starts switched on\n"
     "  --psu N=VOLTS            output N of the supply starts switched on at VOLTS\n"
+    "  --patch A=B              audio jack A of the rack (an input or PLAYING) straight into audio jack B (an output)\n"
+    "  --dmm N=FUNCTION         tip N of the multimeter starts on a function (vdc, vac, vpp, freq, period,\n"
+    "                           duty, width, count, level, adc, aac)\n"
     "  --link OUT:CH=IN:CH      wire an output of an instrument into an input of another (gen:1=scope:1)\n"
-    "  --place NAME=X,Y         where a window opens (rack, scope, logic, gen, psu, dmm)\n"
-    "  --wire NAME:CH=PORT      wire channel CH of an instrument to a port (--wire scope:1=18)\n"
+    "  --place NAME=X,Y         where a window opens (rack, scope, logic, gen, psu, dmm, lab)\n"
+    "  --tile on                lay the windows out in columns, none over another\n"
+    "  --wire NAME:CH=PORT      wire channel CH of an instrument to a port (--wire scope:1=18);\n"
+    "                           20000 + N is the cable N of the circuit (its \"slot\" in the file)\n"
+    "  --circuit FILE           the circuit bench opens with the circuit of FILE (as saved in lab.json)\n"
     "  --math N=FORMULA         enable math channel N (1 or 2) of the scope with a formula name\n"
     "  --screenshot NAME=FILE   write a PNG with alpha of a window (rack, scope) or of the whole\n"
     "                           bench (every window and cable at its place), then quit\n"
@@ -33,7 +39,8 @@ bool parse_instrument(const std::string &name, app::Instrument &kind)
         app::Instrument kind;
     } table[] = {{"scope", app::Instrument::Scope},   {"logic", app::Instrument::Logic},
                  {"gen", app::Instrument::Generator}, {"psu", app::Instrument::Supply},
-                 {"dmm", app::Instrument::Multimeter}};
+                 {"dmm", app::Instrument::Multimeter}, {"lab", app::Instrument::Circuit},
+                 {"audio", app::Instrument::Audio}};
     for (const auto &entry : table) {
         if (name == entry.name) {
             kind = entry.kind;
@@ -105,11 +112,15 @@ int run(int argc, char **argv)
             long channel = std::strtol(ch_text.c_str(), &ch_end, 10);
             long port = std::strtol(port_text.c_str(), &port_end, 10);
             if (ch_text.empty() || port_text.empty() || *ch_end != '\0' || *port_end != '\0' || channel < 1 ||
-                port < 0 || port > 255) {
+                port < 0 || port > 65535) {
                 std::printf("rtr-bench: bad --wire '%s'\n", value.c_str());
                 return 2;
             }
             app.wire_at_start(kind, static_cast<int>(channel) - 1, static_cast<int>(port));
+        } else if (arg == "--tile") {
+            app.tile_at_start();
+        } else if (arg == "--circuit") {
+            app.circuit_at_start(value);
         } else if (arg == "--link") {
             // "--link gen:1=scope:1": output 1 of the generator into channel 1 of the scope.
             size_t eq = value.find('=');
@@ -172,11 +183,36 @@ int run(int argc, char **argv)
             long n = eq == std::string::npos ? 0 : std::strtol(value.c_str(), nullptr, 10);
             char *vend = nullptr;
             double volts = eq == std::string::npos ? -1.0 : std::strtod(value.c_str() + eq + 1, &vend);
-            if (n < 1 || n > 6 || volts < 0.0 || volts > 5.0 || vend == value.c_str() + eq + 1) {
+            if (n < 1 || n > 6 || volts < 0.0 || volts > 30.0 || vend == value.c_str() + eq + 1) {
                 std::printf("rtr-bench: bad --psu '%s' (use N=VOLTS)\n", value.c_str());
                 return 2;
             }
             app.supply_on_at_start(static_cast<int>(n), static_cast<float>(volts));
+        } else if (arg == "--patch") {
+            size_t eq = value.find('=');
+            long a = eq == std::string::npos ? 0 : std::strtol(value.c_str(), nullptr, 10);
+            long b = eq == std::string::npos ? 0 : std::strtol(value.c_str() + eq + 1, nullptr, 10);
+            if (a < 1 || b < 1 || a > 64 || b > 64) {
+                std::printf("rtr-bench: bad --patch '%s' (use A=B)\n", value.c_str());
+                return 2;
+            }
+            app.audio_patch_at_start(static_cast<int>(a), static_cast<int>(b));
+        } else if (arg == "--dmm") {
+            // "--dmm 1=adc": tip 1 of the multimeter starts measuring DC current.
+            const char *const names[] = {"vdc", "vac", "vpp", "freq", "period", "duty", "width", "count", "level", "adc", "aac"};
+            size_t eq = value.find('=');
+            long n = eq == std::string::npos ? 0 : std::strtol(value.c_str(), nullptr, 10);
+            int function = -1;
+            for (int k = 0; eq != std::string::npos && k < 11; k++) {
+                if (value.substr(eq + 1) == names[k]) {
+                    function = k;
+                }
+            }
+            if (n < 1 || n > 8 || function < 0) {
+                std::printf("rtr-bench: bad --dmm '%s' (use N=FUNCTION)\n", value.c_str());
+                return 2;
+            }
+            app.multimeter_function_at_start(static_cast<int>(n), function);
         } else if (arg == "--math") {
             size_t eq = value.find('=');
             if (eq == std::string::npos || (value[0] != '1' && value[0] != '2')) {

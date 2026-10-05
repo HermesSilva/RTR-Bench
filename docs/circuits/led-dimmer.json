@@ -1,0 +1,36 @@
+{
+  "parts": [
+    {"id": 1, "number": 1, "kind": "POTENTIOMETER", "x": 10, "y": 12, "rotation": 1, "value": 10000.0, "value2": 0.0, "setting": 0.5, "model": ""},
+    {"id": 2, "number": 1, "kind": "GROUND", "x": 10, "y": 14, "rotation": 0, "value": 0.0, "value2": 0.0, "setting": 0.5, "model": ""},
+    {"id": 3, "number": 1, "kind": "RESISTOR", "x": 16, "y": 12, "rotation": 0, "value": 1000.0, "value2": 0.0, "setting": 0.5, "model": ""},
+    {"id": 4, "number": 1, "kind": "NPN", "x": 20, "y": 12, "rotation": 0, "value": 0.0, "value2": 0.0, "setting": 0.5, "model": "BC547B"},
+    {"id": 5, "number": 2, "kind": "RESISTOR", "x": 21, "y": 16, "rotation": 1, "value": 470.0, "value2": 0.0, "setting": 0.5, "model": ""},
+    {"id": 6, "number": 1, "kind": "LED", "x": 21, "y": 20, "rotation": 1, "value": 0.0, "value2": 0.0, "setting": 0.5, "model": "LED green"},
+    {"id": 7, "number": 2, "kind": "GROUND", "x": 21, "y": 22, "rotation": 0, "value": 0.0, "value2": 0.0, "setting": 0.5, "model": ""},
+    {"id": 8, "number": 1, "kind": "AMMETER", "x": 21, "y": 8, "rotation": 1, "value": 0.0, "value2": 0.0, "setting": 0.5, "model": ""},
+    {"id": 9, "number": 1, "kind": "VOLTMETER", "x": 26, "y": 20, "rotation": 1, "value": 0.0, "value2": 0.0, "setting": 0.5, "model": ""}
+  ],
+  "wires": [
+    [4, 6, 21, 6],
+    [10, 6, 10, 10],
+    [12, 12, 14, 12],
+    [21, 18, 26, 18],
+    [21, 22, 26, 22]
+  ],
+  "taps": [
+    {"slot": 0, "x": 4, "y": 6},
+    {"slot": 1, "x": 13, "y": 12},
+    {"slot": 2, "x": 21, "y": 18},
+    {"slot": 3, "x": 21, "y": 14}
+  ],
+  "cables": [
+    {"slot": 0, "instrument": "PSU", "instance": 0, "channel": 0},
+    {"slot": 1, "instrument": "SCOPE", "instance": 0, "channel": 0},
+    {"slot": 2, "instrument": "DMM", "instance": 0, "channel": 0},
+    {"slot": 3, "instrument": "SCOPE", "instance": 0, "channel": 1}
+  ],
+  "project": "led-dimmer",
+  "selected": 4,
+  "zoom": 1.6,
+  "pan": [40.0, 20.0]
+}

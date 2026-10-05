@@ -13,6 +13,10 @@ namespace app {
 // The folder, created on first use; empty when it cannot be found or made.
 const std::string &settings_dir();
 
+// The folder of the circuit projects, `.RT-Lab` next to the executable,
+// created on first use; empty when it cannot be found or made.
+const std::string &projects_dir();
+
 // Reads `name`.json; an empty object when the file is missing or broken.
 nlohmann::json load_settings(const std::string &name);
 // Writes `name`.json, pretty-printed. False on I/O error.

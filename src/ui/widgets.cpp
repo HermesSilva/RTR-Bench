@@ -152,8 +152,10 @@ int knob(const char *id, ImVec2 centre, float radius, const char *text, float sc
     ImGuiStorage *storage = ImGui::GetStateStorage();
     ImGuiID key_angle = ImGui::GetID(id);
     ImGuiID key_drag = key_angle + 1;
+    ImGuiID key_moved = key_angle + 2;
     float angle = storage->GetFloat(key_angle, 0.0f);
     float drag = storage->GetFloat(key_drag, 0.0f);
+    float moved = storage->GetFloat(key_moved, 0.0f);   // how far the mouse went while the knob was held
 
     if (hovered) {
         float wheel = ImGui::GetIO().MouseWheel;
@@ -164,6 +166,7 @@ int knob(const char *id, ImVec2 centre, float radius, const char *text, float sc
         }
     }
     if (active) {
+        moved += std::fabs(ImGui::GetIO().MouseDelta.x) + std::fabs(ImGui::GetIO().MouseDelta.y);
         drag += -ImGui::GetIO().MouseDelta.y;   // up = clockwise
         float notch = 10.0f * scale;
         while (drag >= notch) {
@@ -177,9 +180,15 @@ int knob(const char *id, ImVec2 centre, float radius, const char *text, float sc
     } else {
         drag = 0.0f;
     }
+    // The push of the knob: pressed and released without turning it.
+    bool released = ImGui::IsItemDeactivated();
     if (pressed) {
-        *pressed = ImGui::IsItemClicked() && ImGui::GetIO().MouseDelta.x == 0.0f && ImGui::GetIO().MouseDelta.y == 0.0f;
+        *pressed = released && moved < 3.0f * scale;
     }
+    if (!active) {
+        moved = 0.0f;
+    }
+    storage->SetFloat(key_moved, moved);
     angle += static_cast<float>(steps) * 0.35f;
     storage->SetFloat(key_angle, angle);
     storage->SetFloat(key_drag, drag);

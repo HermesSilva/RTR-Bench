@@ -63,6 +63,137 @@ gravação/replay (7), M2k (8).
 | D11 | Fio entre janelas | fio desenhado **dentro das janelas** (plugue com etiqueta nas duas pontas) como base; **fio contínuo pelo desktop** via janela sobreposta clique-através onde o sistema permite (Windows, X11), com queda automática para a base (Wayland) | Wayland não dá posição de janelas |
 | D12 | Conjunto v1 | osciloscópio, analisador lógico, gerador, fonte DC, multímetro | pedido do usuário; espectro, decodificadores e barramentos depois |
 
+### 1.1 Decisões da bancada de circuitos (2026-10-04)
+
+| # | Decisão | Escolha | Motivo |
+|---|---------|---------|--------|
+| D13 | Motor analógico | **ngspice** (`libngspice`), motor único, também no circuito vivo; biblioteca dinâmica carregada em execução (`ngspice.dll` / `libngspice.so.0` ao lado do executável), sem modificações. Fork com ligação estática só se for preciso mexer por dentro | o mais depurado e completo; medido em 2026-10-04: filtro RC e circuito com todas as peças a 1,00× do tempo real com passo de 20 µs |
+| D14 | Esquema | **editor próprio** dentro da bancada, de alto nível, sempre vivo (sem botão "simular"), esquema com símbolos; janela redimensionável, pode cobrir mais de um monitor | pedido do usuário: "100% vivo, como uma bancada real" |
+| D15 | Ligação com a bancada | qualquer ponto do esquema aceita o cabo de um aparelho (**porta de circuito**, 20000 + n); entrada lê a tensão do nó, saída comanda o nó (fonte: 50 mΩ; gerador: 50 Ω). Terra do circuito = terra da bancada (D10 mantida). Revê a D6: no circuito simulado a tensão é a do simulador | o mesmo gesto dos outros fios |
+| D16 | Sem script em execução | nada de Python nem de script rodando com o programa, nem os do ngspice (`spinit`, `.control`): a netlist é gerada em memória e o motor é comandado pela API. Scripts só para build e ferramentas | exigência do usuário. Tira a libsigrokdecode (Python) |
+| D17 | Biblioteca de peças | três níveis: núcleo vivo desenhado por nós sobre os modelos do ngspice; catálogo de peças reais (parâmetros SPICE); importação (`.kicad_sym`, `.lib`/`.subckt` de fabricante). Módulos: qualquer circuito salvo como bloco. Sem limites de queima (a "fumaça" era brincadeira) | o que há pronto cobre comportamento e a cauda longa de símbolos |
+| D18 | Digital | lógica pelo XSPICE do próprio ngspice, na mesma netlist; processadores como peças: o Pi emulado (GPIO no esquema) e depois AVR pelo simavr; HDL só se for pedido | "por enquanto" (usuário) |
+| D19 | Aparelhos | os nossos, com bibliotecas abertas nas partes pesadas (FFT com KISS FFT/PFFFT; Bode pela análise AC do ngspice; decodificadores escritos por nós ou portados da libscopehal); exportar VCD para o PulseView | trocar por aparelhos prontos perderia a aparência e a integração |
+| D20 | Licença | fica para o fim; qualquer licença aberta serve (o projeto é didático), o que permite peças GPL (libsigrok, biblioteca do Qucs-S, simavr) | decisão do usuário |
+| D21 | Áudio do PC | **miniaudio**; microfone, entrada de linha e caixas como bornes no rack | um cabeçalho, WASAPI e ALSA/PulseAudio |
+
+**Feito em 2026-10-04 (primeiro corte da bancada de circuitos, LAB-1)**:
+`core/circuit` (peças, fios, nós, netlist, valores "4k7"), `sim/ngspice`
+(sessão: transiente sem fim em corridas encadeadas que herdam o estado,
+fontes externas comandadas pela bancada, reamostragem a 50 kS/s, ritmo pelo
+relógio da bancada), `instruments/circuit` (editor, peças vivas, cabos em
+qualquer ponto, cor do fio pela tensão, LED aceso pela corrente), corrente na
+fonte (PSU agora 0 a 30 V), `--circuit`, `rtr-sim-check`, `get-ngspice.ps1`
+(ngspice 46; o pacote do 47 pede `sndfile.dll` e `samplerate.dll`).
+Observações: `ngSpice_nospinit` antes de `ngSpice_Init` derruba o 46 (não é
+chamada; só sai um aviso de `spinit` ausente); o ngspice guarda todos os
+pontos de uma análise, por isso as corridas encadeadas (alguns segundos cada,
+`.ic` + `uic` na seguinte); potenciômetro e chave são fontes B comandadas por
+uma fonte externa, para girar sem recarregar a netlist.
+
+**Acréscimos de 2026-10-04 (noite)**: projetos do LAB (teclas NEW, OPEN,
+SAVE; um arquivo JSON por projeto, com o circuito e os cabos, na pasta
+`.RT-Lab` ao lado do executável; o nome aparece no chassi); alfinete
+"stay on top" em todas as janelas (rack, aparelhos e LAB), guardado com a
+posição em `bench.json`; `--psu` aceita até 30 V.
+
+**LAB profissional, primeira leva (2026-10-05)** — orientação do usuário:
+tomar como base a usabilidade dos melhores laboratórios (Multisim, Proteus,
+LTspice, TINA), inclusive comerciais, e ir além. Feito: tecla **ADD** com
+diálogo de catálogo (categorias, busca, pré-visualização do símbolo; a peça
+escolhida fica na mão); **catálogo** em `core/circuit.cpp` (peça genérica de
+cada tipo + peças reais com modelo SPICE: 1N4148, 1N4007, 1N5819, zeners,
+LEDs por cor, 2N3904, 2N2222, BC547B, 2N3906, BC557B, LM358, TL072, NE5532,
+MOSFETs de nível 1); **painel de propriedades** da peça selecionada (peça do
+catálogo, valor, frequência, posição, girar, remover, e o que ela faz agora:
+tensão por pino, corrente, potência, Vbe/Vce, Vgs/Vds); peças novas: fonte
+DC, fonte senoidal, fonte de corrente, NMOS, PMOS, **voltímetro e
+amperímetro de painel** com leitura no esquema; desfazer/refazer
+(Ctrl+Z/Ctrl+Y, 200 níveis), duplicar (Ctrl+D), menu de contexto (botão
+direito), RUN/PAUSED (espaço), FIT (F), exportar netlist SPICE (`.cir` na
+pasta dos projetos). Os parâmetros dos modelos reais foram escritos de
+memória a partir dos modelos publicados: conferir com as folhas dos
+fabricantes antes de confiar em números finos.
+
+**Corrente no multímetro (2026-10-05)**: funções **A DC** e **A AC** no
+DMM-1. Com a ponta e o COM em dois pontos do esquema o aparelho entra em
+série (fonte de 0 V + 10 mΩ entre os dois nós; COM livre = terra da
+bancada) e a ponta recebe a corrente em amperes no lugar da tensão.
+Conferido no projeto `led-current`: 4,054 mA no DMM contra 4,04 mA no
+amperímetro de painel. `--dmm N=FUNÇÃO` escolhe a função na partida. A linha
+de mín/máx/média ainda mostra amperes sem prefixo.
+
+**Áudio do PC no rack (2026-10-05, D21 feita)**: `src/audio/audio_ports`
+(miniaudio 0.11.21). Cada dispositivo de captura e de reprodução é um
+**grupo** na faixa AUDIO do rack, com o nome do dispositivo e um borne por
+canal (L/R); o padrão do sistema vem primeiro; a faixa quebra em linhas e a
+janela do rack cresce. Para a aplicação é um aparelho sem janela
+(`Instrument::Audio`): entrada ligada a um ponto do esquema vira fonte
+(600 Ω, 1 V = fundo de escala, 30 ms atrás da simulação), ponto do esquema
+ligado a uma saída é tocado (reamostrado para 48 kHz). O dispositivo só
+abre enquanto tem cabo. Conferido: microfone → RC → osciloscópio e caixas a
+1,00×. Falta: entrada de áudio direto num aparelho (sem passar pelo
+esquema), ganho por borne, medir o estalo na emenda das corridas do ngspice,
+Linux.
+
+**Som de qualquer player no rack (2026-10-05)**: pedido do usuário — uma
+saída virtual visível no Windows que chega ao rack. Um programa não cria
+dispositivo de áudio sem driver (instalação com administrador, fora do
+executável portátil). Feito o caminho sem driver: grupo **PLAYING** por
+dispositivo de reprodução (WASAPI loopback, só Windows), que entrega ao
+esquema o que o PC está tocando ali; a saída OUT do mesmo dispositivo fica
+muda enquanto o PLAYING dele estiver em uso (realimentação). Conferido com
+som tocando no PC: sinal no osciloscópio antes e depois do RC, 1,00×.
+Caminho com driver, sem código nosso: um cabo virtual instalado pelo
+usuário (VB-CABLE ou equivalente) aparece como saída no Windows e como
+grupo IN no rack. **Em aberto (decisão do usuário)**: empacotar ou não um
+driver de cabo virtual de código aberto junto do projeto.
+
+**RTR-Cable (2026-10-05)**: decisão do usuário — ter o nosso cabo virtual
+de código aberto, instalado à parte. Repositório `HermesSilva/RTR-Cable`
+(fork MIT do AudioMirror; clone em `RTR-SO\RTR-Cable`). Cria "RTR-Cable
+Input" (reprodução) e "RTR-Cable Output" (gravação, que aparece como grupo
+IN no rack). O CI compila, verifica o INF e assina o pacote com certificado
+de teste. **Limite**: só carrega com o Windows em modo de teste (Secure Boot
+desligado); assinatura de produção pede certificado EV e o Hardware Dev
+Center da Microsoft. Instalação e áudio pelo cabo ainda não testados.
+
+**Rack de áudio, acréscimos de 2026-10-05**: lâmpada de sinal ao lado de
+cada borne (verde com sinal, vermelha perto do fundo de escala; as fontes
+ficam abertas desde a partida para isso); **borne a borne** no próprio rack
+(fonte → saída, cabo desenhado no rack, salvo em `bench.json`, `--patch
+A=B`), recusado quando a saída é o dispositivo que a fonte PLAYING escuta;
+VB-CABLE como cabo virtual por enquanto (`scripts\get-vbcable.ps1`,
+`extras\vb-cable`, binários fora do git).
+
+**Capturas (2026-10-05, decisão do usuário)**: só no tema **dark**, e cada
+imagem é aberta e conferida antes do commit (substitui "três temas" da RV6
+para as capturas; os temas continuam no produto). As cenas compostas usam
+`--tile on`: a bancada arruma as janelas em duas colunas, sem sobreposição
+e dentro de um monitor (uma janela que cai fora da tela passa para outro
+monitor e é desenhada na escala dele). As duas cenas do emulador
+(`rack-dark.png`, `scope-dark.png`) ainda são as antigas.
+
+**Próximas levas, pela ordem**: (2) editor — seleção múltipla com retângulo,
+copiar/colar, mover fio, fios que acompanham em ângulo reto, rótulos de nó
+(net labels) e símbolos de alimentação VCC/VEE, texto livre; (3) análises
+fora do tempo real numa janela própria — Bode (AC), varredura DC, transiente
+de precisão, Fourier/THD, ruído, varredura de parâmetro; (4) mais peças —
+transformador, relé, lâmpada, buzzer/alto-falante, motor DC, 555, reguladores
+78xx/LM317, JFET, optoacoplador, display de 7 segmentos, portas lógicas e
+flip-flops (XSPICE); (5) pontas de medida no esquema com V/I/f ao vivo e
+animação da corrente nos fios; (6) módulos (subcircuitos próprios),
+importação de `.kicad_sym` e `.lib`/`.subckt`; (7) verificação elétrica
+(nó solto, sem terra, saída em curto), lista de materiais, exportar imagem;
+(8) falhas de componente (aberto, curto, fuga) para ensino de diagnóstico.
+
+**Falta na bancada de circuitos**, pela ordem sugerida: corrente no multímetro
+(ponta numa perna de peça); fonte com saída negativa/simétrica; áudio do PC
+(D21); desfazer/refazer, copiar e colar, seleção múltipla; subida de nível dos
+aparelhos (D19: FFT/espectro, Bode, XY, fase, estatística, exportação);
+catálogo de peças reais e módulos (D17); lógica XSPICE e GPIO do Pi no esquema
+(D18); medir o soluço de áudio numa edição; Linux (`libngspice0`).
+
 ## 2. Para que serve
 
 Bancada de instrumentos para desenvolver e validar o RTR-OS e os programas de

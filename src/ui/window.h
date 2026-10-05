@@ -61,6 +61,9 @@ public:
     void raise_without_focus();   // bring to front, the focus stays where it is
     void show(bool visible);
     bool focused() const;
+    // Keeps the window above every other one (the pin on the chassis).
+    void set_on_top(bool on_top);
+    bool on_top() const { return on_top_; }
 
     // Saves the next rendered frame as a PNG with alpha (the transparent
     // margins stay transparent). Returns through `done` when written.
@@ -98,6 +101,7 @@ private:
     int captured_w_ = 0;
     int captured_h_ = 0;
     bool overlay_ = false;
+    bool on_top_ = false;
     Fonts fonts_;
 };
 

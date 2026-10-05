@@ -20,6 +20,8 @@
 
 namespace app {
 
+class AudioPorts;
+
 // A wire from a port of the target to a channel of an instrument instance.
 struct Wire {
     InstrumentId instrument;
@@ -49,6 +51,13 @@ public:
         probe_from_command_line_ = true;
     }
     void open_at_start(Instrument kind) { open_at_start_.push_back(kind); }
+    // "--tile on": once the windows have their sizes they are laid out in
+    // columns, none over another (the composite screenshots use it: sizes
+    // depend on the instruments and on the audio devices of the computer).
+    void tile_at_start() { tile_ = true; }
+    // "--circuit FILE": the circuit bench opens with the circuit of a file
+    // (as saved in lab.json) instead of the one it had.
+    void circuit_at_start(const std::string &path) { circuit_file_ = path; }
     void wire_at_start(Instrument kind, int channel, int port)
     {
         wires_at_start_.push_back(Wire{InstrumentId{kind, 0}, channel, port});
@@ -80,6 +89,11 @@ public:
     // "--psu 1=3.8": output 1 of the supply starts on at 3.8 V.
     void supply_on_at_start(int output, float volts) { supply_on_.push_back({output, volts}); }
     const std::vector<std::pair<int, float>> &supply_outputs_on() const { return supply_on_; }
+    // "--patch 1=15": audio jack 1 of the rack (a source) straight into audio jack 15 (an output).
+    void audio_patch_at_start(int source, int sink) { audio_patches_.push_back({source, sink}); }
+    // "--dmm 1=adc": the function tip 1 of the multimeter starts on, by its number.
+    void multimeter_function_at_start(int tip, int function) { multimeter_functions_.push_back({tip, function}); }
+    const std::vector<std::pair<int, int>> &multimeter_functions() const { return multimeter_functions_; }
 
     // For the rack and the instruments.
     core::Probe &probe() { return *probe_; }
@@ -103,6 +117,9 @@ public:
     // The colour of the wire of a channel of an instrument.
     uint32_t wire_colour(InstrumentId instrument, int channel) const;
     const InstrumentBase *instrument(InstrumentId id) const;      // null when not open
+    InstrumentBase *instrument(InstrumentId id) { return find_instrument(id); }
+    // The audio of the computer: an instrument without a window, its jacks are on the rack.
+    AudioPorts *audio() { return audio_.get(); }
     void select_port(int port);                                   // from the rack
     int selected_port() const { return selected_port_; }
     void offer_channel(InstrumentId instrument, int channel);     // from an instrument
@@ -118,7 +135,43 @@ public:
     // generates its events as the probe would. Returns the virtual port.
     int publish_output(InstrumentId instrument, int channel, const core::WaveSpec &spec, bool on);
     static constexpr int virtual_port_base = 10000;
-    static bool is_virtual_port(int port) { return port >= virtual_port_base; }
+    static bool is_virtual_port(int port) { return port >= virtual_port_base && port < circuit_port_base; }
+    // What an output publishes; false when it has published nothing yet.
+    bool output_spec(InstrumentId instrument, int channel, core::WaveSpec &spec, bool &on) const;
+    // The current an output delivers into the circuit it is wired to; false elsewhere.
+    bool output_current(InstrumentId instrument, int channel, float &amps) const;
+
+    // Circuit ports: the points of the schematic a cable is plugged into.
+    // The circuit bench declares one per cable; inputs read its voltage,
+    // outputs drive it.
+    static constexpr int circuit_port_base = 20000;
+    static bool is_circuit_port(int port) { return port >= circuit_port_base && port < audio_port_base; }
+    // Audio ports: the sources of the audio strip of the rack (inputs of the
+    // computer and what it is playing), as ports any input of an instrument
+    // can be wired to. 30000 + the channel of the jack.
+    static constexpr int audio_port_base = 30000;
+    static bool is_audio_port(int port) { return port >= audio_port_base; }
+    void declare_circuit_port(int slot, const std::string &name);
+    void remove_circuit_port(int slot);   // and the cable in it
+    // The cable in hand, when it hangs from an instrument.
+    bool cable_offered() const { return offered_; }
+    // Puts in hand a cable that hangs from a channel, whatever that channel
+    // is wired to (an instrument that keeps cables of its own uses it when
+    // one of their ends is taken out).
+    void hold_cable(InstrumentId instrument, int channel)
+    {
+        offered_ = true;
+        offered_instrument_ = instrument;
+        offered_channel_ = channel;
+        selected_port_ = -1;
+    }
+    // Which channel that cable hangs from; false when there is none.
+    bool offered(InstrumentId &instrument, int &channel) const
+    {
+        instrument = offered_instrument_;
+        channel = offered_channel_;
+        return offered_;
+    }
     static bool is_output_instrument(Instrument kind) { return kind == Instrument::Generator || kind == Instrument::Supply; }
 
     // A click within `grab_radius` of a wire end (outside the jack itself)
@@ -156,6 +209,8 @@ private:
 
     std::unique_ptr<ui::Window> rack_window_;
     Rack rack_{*this};
+    std::unique_ptr<AudioPorts> audio_;
+    nlohmann::json audio_settings_;   // from bench.json, for the audio ports once they exist
     struct OpenInstrument {
         std::unique_ptr<InstrumentBase> instrument;
         std::unique_ptr<ui::Window> window;
@@ -209,6 +264,9 @@ private:
         float y = 0.0f;
     };
     std::vector<Anchor> port_anchors_;
+    std::vector<std::pair<int, Anchor>> circuit_anchors_;
+    const Anchor *port_anchor(int port);   // of any port: probe, output or circuit
+    std::vector<core::PortInfo> circuit_ports_;   // by slot; an empty name is a free slot
     struct ChannelAnchor {
         InstrumentId instrument;
         int channel;
@@ -259,10 +317,12 @@ private:
         InstrumentId id;
         int x;
         int y;
+        bool on_top;
     };
     std::vector<SavedWindow> saved_instruments_;   // from bench.json, applied when opened
     int rack_x_ = 40;
     int rack_y_ = 40;
+    bool rack_on_top_ = false;
 
     struct ScreenshotTarget {
         std::string window;
@@ -271,11 +331,17 @@ private:
     std::vector<ScreenshotTarget> screenshots_;
     double screenshot_delay_ = 5.0;
     std::vector<Instrument> open_at_start_;
+    bool tile_ = false;
+    bool tiled_ = false;
+    void tile_windows();
+    std::string circuit_file_;
     std::vector<Wire> wires_at_start_;
     std::vector<Placement> placements_;
     std::vector<MathPreset> math_presets_;
     std::vector<int> generator_on_;
     std::vector<std::pair<int, float>> supply_on_;
+    std::vector<std::pair<int, int>> multimeter_functions_;
+    std::vector<std::pair<int, int>> audio_patches_;
     ui::ThemeKind theme_ = ui::ThemeKind::Dark;
     bool theme_from_command_line_ = false;
 

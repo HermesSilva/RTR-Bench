@@ -7,6 +7,7 @@
 #include <imgui.h>
 
 #include "app/app.h"
+#include "audio/audio_ports.h"
 #include "ui/chassis.h"
 #include "ui/fonts.h"
 #include "ui/theme.h"
@@ -126,7 +127,7 @@ void Rack::draw(ui::Window &window)
     };
     const Entry entries[] = {{"##scope", "SCOPE", Instrument::Scope},  {"##logic", "LOGIC", Instrument::Logic},
                              {"##gen", "GEN", Instrument::Generator},  {"##psu", "PSU", Instrument::Supply},
-                             {"##dmm", "DMM", Instrument::Multimeter}};
+                             {"##dmm", "DMM", Instrument::Multimeter}, {"##lab", "LAB", Instrument::Circuit}};
     const ui::ThemeKind kinds[] = {ui::ThemeKind::Light, ui::ThemeKind::Dark, ui::ThemeKind::Amber};
     const char *names[] = {"LIGHT", "DARK", "AMBER"};
     const char *ids[] = {"##theme-light", "##theme-dark", "##theme-amber"};
@@ -143,8 +144,8 @@ void Rack::draw(ui::Window &window)
             app_.set_theme(kinds[i]);
         }
     }
-    rx -= 5.0f * (iw + gap) + 8.0f * s;
-    for (int i = 0; i < 5; i++) {
+    rx -= 6.0f * (iw + gap) + 8.0f * s;
+    for (int i = 0; i < 6; i++) {
         if (ui::key(entries[i].id, entries[i].name, ImVec2(rx + static_cast<float>(i) * (iw + gap), y), ImVec2(iw, key_h),
                     app_.instrument_open(entries[i].kind), t.led_run, s)) {
             // ctrl+click makes one more instance of the instrument.
@@ -154,8 +155,21 @@ void Rack::draw(ui::Window &window)
     y += key_h + 14.0f * s;
 
     // ---- PORTS: the whole width, up to 16 jacks per row ---------------------
+    // The audio of the computer takes a strip under the ports of the
+    // target, as tall as its groups need; the window follows.
+    AudioPorts *audio_ports = app_.audio();
+    const float audio_h = audio_ports ? audio_ports->layout_height(frame.panel_max.x - frame.panel_min.x, s) : 0.0f;
+    {
+        int width = 0;
+        int height = 0;
+        window.size(width, height);
+        int wanted = static_cast<int>(246.0f + audio_h / s);
+        if (height != wanted) {
+            window.set_size(width, wanted);
+        }
+    }
     ImVec2 ports_min(frame.panel_min.x, y);
-    ImVec2 ports_max(frame.panel_max.x, frame.panel_max.y);
+    ImVec2 ports_max(frame.panel_max.x, frame.panel_max.y - audio_h - 6.0f * s);
     ui::group_frame(ports_min, ports_max, emu ? "PORTS  GPIO (BCM)  ground is automatic" : "PORTS  ground is automatic", s);
     // The probe state on the title line of the ports group, at the right.
     {
@@ -215,6 +229,9 @@ void Rack::draw(ui::Window &window)
             }
             ImGui::EndTooltip();
         }
+    }
+    if (AudioPorts *audio = app_.audio()) {
+        audio->draw_jacks(window, ImVec2(frame.panel_min.x, frame.panel_max.y - audio_h), frame.panel_max);
     }
     app_.grab_near(window);
     ui::end_chassis();

@@ -53,6 +53,25 @@ const std::string &settings_dir()
     return dir;
 }
 
+const std::string &projects_dir()
+{
+    static const std::string dir = [] {
+        std::filesystem::path base = executable_dir();
+        if (base.empty()) {
+            return std::string();
+        }
+        std::filesystem::path folder = base / ".RT-Lab";
+        std::error_code ec;
+        std::filesystem::create_directories(folder, ec);
+        if (ec) {
+            std::fprintf(stderr, "rtr-bench: cannot create %s\n", folder.string().c_str());
+            return std::string();
+        }
+        return folder.string();
+    }();
+    return dir;
+}
+
 nlohmann::json load_settings(const std::string &name)
 {
     if (settings_dir().empty()) {

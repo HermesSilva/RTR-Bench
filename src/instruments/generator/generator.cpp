@@ -139,7 +139,7 @@ void Generator::remove_output(int index)
         return;
     }
     Output &o = *outputs_[static_cast<size_t>(index)];
-    if (o.port >= 0) {
+    if (o.port >= 0 && !App::is_circuit_port(o.port)) {
         core::WaveSpec off;
         app_.probe().drive_waveform(o.port, off);
     }
@@ -161,7 +161,7 @@ void Generator::wiring_changed()
         Output &o = *outputs_[i];
         int port = app_.wired_port(this->id(), static_cast<int>(i));
         if (port != o.port) {
-            if (o.port >= 0) {
+            if (o.port >= 0 && !App::is_circuit_port(o.port)) {
                 core::WaveSpec off;
                 app_.probe().drive_waveform(o.port, off);
             }
@@ -175,8 +175,8 @@ void Generator::wiring_changed()
 void Generator::apply(Output &o)
 {
     o.dirty = false;
-    if (o.port < 0) {
-        return;
+    if (o.port < 0 || App::is_circuit_port(o.port)) {
+        return;   // a circuit reads what the output publishes
     }
     const core::PortInfo *info = app_.port_info(o.port);
     if (!info || !info->drivable || !app_.probe().capabilities().drive) {
@@ -346,13 +346,14 @@ void Generator::draw_module(ui::Window &window, int index, ImVec2 min, ImVec2 ma
     draw_waveform_combo(o, index, ImVec2(x, y), ImVec2(combo_w, key_h), s);
     x += combo_w + gap;
     std::snprintf(id, sizeof(id), "##out%d", index);
-    bool usable = (o.port >= 0 && drivable && can_drive) || app_.port_wire_colour(vport) != 0;
+    bool to_circuit = App::is_circuit_port(o.port);
+    bool usable = (o.port >= 0 && drivable && can_drive) || to_circuit || app_.port_wire_colour(vport) != 0;
     (void)analog_port;
     if (ui::key(id, o.on ? "ON" : "OFF", ImVec2(x, y), ImVec2(out_w, key_h), o.on, t.led_run, s, usable)) {
         o.on = !o.on;
         o.dirty = true;
     }
-    if (o.port >= 0 && (!drivable || !can_drive)) {
+    if (o.port >= 0 && !to_circuit && (!drivable || !can_drive)) {
         draw->AddText(small, small->FontSize, ImVec2(x, y + key_h + 2.0f * s), t.led_stop, "no drive");
     }
 
