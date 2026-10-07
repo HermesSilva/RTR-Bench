@@ -171,6 +171,52 @@ void draw_round_body(const Pen &pen)
     pen.circle(0.0f, 0.0f, 1.0f);
 }
 
+// A NOR gate: the shield, the circle of the inversion and the leads.
+void draw_nor(const Pen &pen)
+{
+    float back[9][2];
+    float top[9][2];
+    float bottom[9][2];
+    for (int k = 0; k < 9; k++) {
+        float y = -1.5f + 3.0f * static_cast<float>(k) / 8.0f;
+        back[k][0] = -2.0f + 0.45f * (1.0f - (y / 1.5f) * (y / 1.5f));
+        back[k][1] = y;
+        float a = 1.5707963f * static_cast<float>(k) / 8.0f;
+        top[k][0] = -2.0f + 3.4f * std::sin(a);
+        top[k][1] = -1.5f * std::cos(a);
+        bottom[k][0] = top[k][0];
+        bottom[k][1] = -top[k][1];
+    }
+    pen.poly(back, 9);
+    pen.poly(top, 9);
+    pen.poly(bottom, 9);
+    pen.circle(1.7f, 0.0f, 0.3f);
+    pen.line(2.0f, 0.0f, 3.0f, 0.0f);
+    pen.line(-3.0f, -1.0f, -1.75f, -1.0f);
+    pen.line(-3.0f, 1.0f, -1.75f, 1.0f);
+    pen.line(0.0f, -2.0f, 0.0f, -1.21f);
+    pen.line(0.0f, 2.0f, 0.0f, 1.21f);
+}
+
+// An integrated circuit drawn as a box: a lead from every pin to the body.
+void draw_box(const Pen &pen)
+{
+    const core::PartDef &def = core::part_def(pen.part->kind);
+    const auto x0 = static_cast<float>(def.box_min.x + 1);
+    const auto y0 = static_cast<float>(def.box_min.y + 1);
+    const auto x1 = static_cast<float>(def.box_max.x - 1);
+    const auto y1 = static_cast<float>(def.box_max.y - 1);
+    pen.line(x0, y0, x1, y0);
+    pen.line(x1, y0, x1, y1);
+    pen.line(x1, y1, x0, y1);
+    pen.line(x0, y1, x0, y0);
+    for (int j = 0; j < def.pins; j++) {
+        const auto x = static_cast<float>(def.pin[j].x);
+        const auto y = static_cast<float>(def.pin[j].y);
+        pen.line(x, y, std::clamp(x, x0, x1), std::clamp(y, y0, y1));
+    }
+}
+
 // A reading with its sign and SI prefix: "-4.7mA".
 std::string reading_text(double value, const char *unit)
 {
@@ -308,6 +354,12 @@ void draw_symbol(const Pen &pen, float glow, uint32_t glow_colour)
         pen.line(0.0f, -0.4f, 0.35f, 0.4f);
         pen.line(-0.18f, 0.1f, 0.18f, 0.1f);
         break;
+    case core::PartKind::Nor:
+        draw_nor(pen);
+        break;
+    case core::PartKind::Bbd:
+        draw_box(pen);
+        break;
     }
 }
 
@@ -327,6 +379,19 @@ void place_text(ImDrawList *draw, ImVec2 anchor, ImVec2 centre, const char *text
     draw->AddText(font, font->FontSize, pos, colour, text);
 }
 
+// The names of the pins of a part drawn as a box, inside it.
+void draw_pin_names(const Pen &pen, uint32_t colour)
+{
+    const core::PartDef &def = core::part_def(pen.part->kind);
+    for (int j = 0; j < def.pins; j++) {
+        const auto x = static_cast<float>(def.pin[j].x);
+        const auto y = static_cast<float>(def.pin[j].y);
+        float ix = std::clamp(x, static_cast<float>(def.box_min.x) + 1.3f, static_cast<float>(def.box_max.x) - 1.3f);
+        float iy = std::clamp(y, static_cast<float>(def.box_min.y) + 1.3f, static_cast<float>(def.box_max.y) - 1.3f);
+        place_text(pen.draw, pen.at(ix, iy), pen.at(x, y), def.pin_name[j], colour);
+    }
+}
+
 // Where the reference and the value of a kind go, around the part.
 void text_anchor(core::PartKind kind, float &x, float &y)
 {
@@ -341,6 +406,14 @@ void text_anchor(core::PartKind kind, float &x, float &y)
     case core::PartKind::OpAmp:
         x = 0.9f;
         y = -1.5f;
+        break;
+    case core::PartKind::Nor:
+        x = 1.2f;
+        y = -1.0f;
+        break;
+    case core::PartKind::Bbd:
+        x = 0.0f;   // in the middle of the box
+        y = 0.0f;
         break;
     case core::PartKind::Led:
     case core::PartKind::Potentiometer:
@@ -451,6 +524,8 @@ CircuitBench::~CircuitBench()
 
 void CircuitBench::changed()
 {
+    clear_block();
+    selected_wire_ = -1;
     if (!restoring_) {
         undo_.push_back(last_);
         if (undo_.size() > 200) {
@@ -489,6 +564,10 @@ void CircuitBench::move_pins(const std::vector<core::GridPoint> &from, const std
                 touched = touched || core::pin_position(other, j) == from[k];
             }
         }
+        // So does a pin that sat along a wire, away from its ends.
+        for (const core::CircuitWire &w : circuit_.wires) {
+            touched = touched || (w.a != from[k] && w.b != from[k] && core::point_on_segment(from[k], w.a, w.b));
+        }
         if (touched) {
             bridges.push_back(core::CircuitWire{from[k], to[k]});
         }
@@ -516,23 +595,230 @@ void CircuitBench::move_pins(const std::vector<core::GridPoint> &from, const std
                          circuit_.wires.end());
 }
 
+// A part alone moves as a block of one.
 void CircuitBench::move_part(size_t index, int dx, int dy)
 {
-    core::Part &part = circuit_.parts[index];
-    std::vector<core::GridPoint> from;
-    std::vector<core::GridPoint> to;
-    const int pins = core::part_def(part.kind).pins;
-    from.reserve(static_cast<size_t>(pins));
-    to.reserve(static_cast<size_t>(pins));
-    for (int j = 0; j < pins; j++) {
-        from.push_back(core::pin_position(part, j));
+    std::vector<int> parts{circuit_.parts[index].id};
+    std::vector<char> wires;
+    parts.swap(block_);
+    wires.swap(block_wires_);
+    move_block(dx, dy);
+    block_ = std::move(parts);
+    block_wires_ = std::move(wires);
+}
+
+bool CircuitBench::in_block(int id) const
+{
+    return std::find(block_.begin(), block_.end(), id) != block_.end();
+}
+
+void CircuitBench::clear_block()
+{
+    block_.clear();
+    block_wires_.clear();
+}
+
+// The parts with every pin inside the rectangle and the wires with both
+// ends inside it, in grid units.
+void CircuitBench::select_block(float x0, float y0, float x1, float y1)
+{
+    clear_block();
+    auto inside = [&](core::GridPoint p) {
+        const auto x = static_cast<float>(p.x);
+        const auto y = static_cast<float>(p.y);
+        return x >= std::min(x0, x1) && x <= std::max(x0, x1) && y >= std::min(y0, y1) && y <= std::max(y0, y1);
+    };
+    for (const core::Part &part : circuit_.parts) {
+        bool all = true;
+        for (int j = 0; j < core::part_def(part.kind).pins; j++) {
+            all = all && inside(core::pin_position(part, j));
+        }
+        if (all) {
+            block_.push_back(part.id);
+        }
     }
-    part.x += dx;
-    part.y += dy;
-    for (int j = 0; j < pins; j++) {
-        to.push_back(core::pin_position(part, j));
+    block_wires_.assign(circuit_.wires.size(), 0);
+    bool any = !block_.empty();
+    for (size_t w = 0; w < circuit_.wires.size(); w++) {
+        if (inside(circuit_.wires[w].a) && inside(circuit_.wires[w].b)) {
+            block_wires_[w] = 1;
+            any = true;
+        }
     }
-    move_pins(from, to, part.id);
+    if (!any) {
+        clear_block();
+    }
+}
+
+// Moves the block as one piece, and nothing that was connected comes
+// apart. A wire between two points of the block goes with it, and so does
+// a wire that hangs from it with a free end. A wire that ends on the block
+// stretches, unless something sits along it: then it stays where it is and
+// a new wire joins its old end to the block. Where a pin of another part or
+// the middle of a wire touched the block, a new wire joins them. The cables
+// of the bench go with the point or the wire they are on.
+void CircuitBench::move_block(int dx, int dy)
+{
+    std::vector<core::CircuitWire> &wires = circuit_.wires;
+    if (block_wires_.size() != wires.size()) {
+        block_wires_.assign(wires.size(), 0);
+    }
+    std::vector<core::GridPoint> points;   // every point that moves
+    for (const core::Part &part : circuit_.parts) {
+        for (int j = 0; in_block(part.id) && j < core::part_def(part.kind).pins; j++) {
+            points.push_back(core::pin_position(part, j));
+        }
+    }
+    for (size_t w = 0; w < wires.size(); w++) {
+        if (block_wires_[w]) {
+            points.push_back(wires[w].a);
+            points.push_back(wires[w].b);
+        }
+    }
+    auto moves = [&](core::GridPoint p) { return std::find(points.begin(), points.end(), p) != points.end(); };
+    auto shifted = [&](core::GridPoint p) { return core::GridPoint{p.x + dx, p.y + dy}; };
+    auto along = [](core::GridPoint p, const core::CircuitWire &w) {
+        return p != w.a && p != w.b && core::point_on_segment(p, w.a, w.b);
+    };
+    // Whether anything outside the block is at a point, the wire `skip` aside.
+    auto held = [&](core::GridPoint p, size_t skip) {
+        for (const core::Part &part : circuit_.parts) {
+            for (int j = 0; !in_block(part.id) && j < core::part_def(part.kind).pins; j++) {
+                if (core::pin_position(part, j) == p) {
+                    return true;
+                }
+            }
+        }
+        for (size_t w = 0; w < wires.size(); w++) {
+            if (w != skip && !block_wires_[w] && core::point_on_segment(p, wires[w].a, wires[w].b)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    // Whether a pin, the end of another wire or a cable sits along a wire.
+    auto busy = [&](size_t index) {
+        const core::CircuitWire &wire = wires[index];
+        for (const core::Part &part : circuit_.parts) {
+            for (int j = 0; j < core::part_def(part.kind).pins; j++) {
+                if (along(core::pin_position(part, j), wire)) {
+                    return true;
+                }
+            }
+        }
+        for (size_t w = 0; w < wires.size(); w++) {
+            if (w != index && (along(wires[w].a, wire) || along(wires[w].b, wire))) {
+                return true;
+            }
+        }
+        for (const core::Tap &tap : circuit_.taps) {
+            if (along(tap.at, wire)) {
+                return true;
+            }
+        }
+        return false;
+    };
+    // The wires that go with the block, until no more join it.
+    for (bool grew = true; grew;) {
+        grew = false;
+        for (size_t w = 0; w < wires.size(); w++) {
+            if (block_wires_[w]) {
+                continue;
+            }
+            const bool a = moves(wires[w].a);
+            const bool b = moves(wires[w].b);
+            const bool hangs = (a != b) && !held(a ? wires[w].b : wires[w].a, w) && !busy(w);
+            if ((a && b) || hangs) {
+                block_wires_[w] = 1;
+                points.push_back(wires[w].a);
+                points.push_back(wires[w].b);
+                grew = true;
+            }
+        }
+    }
+    std::vector<core::CircuitWire> bridges;
+    auto bridge = [&](core::GridPoint p) {
+        for (const core::CircuitWire &b : bridges) {
+            if (b.a == p) {
+                return;
+            }
+        }
+        bridges.push_back(core::CircuitWire{p, shifted(p)});
+    };
+    for (const core::Part &other : circuit_.parts) {
+        for (int j = 0; !in_block(other.id) && j < core::part_def(other.kind).pins; j++) {
+            if (moves(core::pin_position(other, j))) {
+                bridge(core::pin_position(other, j));
+            }
+        }
+    }
+    std::vector<char> stretches(wires.size(), 0);
+    for (size_t w = 0; w < wires.size(); w++) {
+        if (block_wires_[w]) {
+            continue;
+        }
+        const bool a = moves(wires[w].a);
+        const bool b = moves(wires[w].b);
+        if (a || b) {
+            if (busy(w)) {
+                bridge(a ? wires[w].a : wires[w].b);
+            } else {
+                stretches[w] = 1;
+            }
+        }
+        for (const core::GridPoint &p : points) {
+            if (along(p, wires[w])) {
+                bridge(p);
+            }
+        }
+    }
+    for (core::Tap &tap : circuit_.taps) {
+        bool with_block = moves(tap.at);
+        for (size_t w = 0; w < wires.size(); w++) {
+            with_block = with_block || (block_wires_[w] && core::point_on_segment(tap.at, wires[w].a, wires[w].b));
+        }
+        if (with_block) {
+            tap.at = shifted(tap.at);
+        }
+    }
+    for (size_t w = 0; w < wires.size(); w++) {
+        core::CircuitWire &wire = wires[w];
+        const bool a = block_wires_[w] || (stretches[w] && moves(wire.a));
+        const bool b = block_wires_[w] || (stretches[w] && moves(wire.b));
+        wire.a = a ? shifted(wire.a) : wire.a;
+        wire.b = b ? shifted(wire.b) : wire.b;
+    }
+    for (core::Part &part : circuit_.parts) {
+        if (in_block(part.id)) {
+            part.x += dx;
+            part.y += dy;
+        }
+    }
+    for (const core::CircuitWire &b : bridges) {
+        wires.push_back(b);
+        block_wires_.push_back(0);
+    }
+    for (size_t w = wires.size(); w-- > 0;) {
+        if (wires[w].a == wires[w].b) {
+            wires.erase(wires.begin() + static_cast<std::ptrdiff_t>(w));
+            block_wires_.erase(block_wires_.begin() + static_cast<std::ptrdiff_t>(w));
+        }
+    }
+}
+
+void CircuitBench::remove_block()
+{
+    for (size_t w = circuit_.wires.size(); w-- > 0;) {
+        if (w < block_wires_.size() && block_wires_[w]) {
+            circuit_.wires.erase(circuit_.wires.begin() + static_cast<std::ptrdiff_t>(w));
+        }
+    }
+    for (size_t i = circuit_.parts.size(); i-- > 0;) {
+        if (in_block(circuit_.parts[i].id)) {
+            circuit_.parts.erase(circuit_.parts.begin() + static_cast<std::ptrdiff_t>(i));
+        }
+    }
+    clear_block();
 }
 
 void CircuitBench::rotate_part(size_t index)
@@ -619,6 +905,7 @@ void CircuitBench::undo()
     undo_.pop_back();
     circuit_.taps = std::move(taps);
     selected_id_ = -1;
+    selected_wire_ = -1;
     drag_id_ = -1;
     restoring_ = true;
     changed();
@@ -636,6 +923,7 @@ void CircuitBench::redo()
     redo_.pop_back();
     circuit_.taps = std::move(taps);
     selected_id_ = -1;
+    selected_wire_ = -1;
     drag_id_ = -1;
     restoring_ = true;
     changed();
@@ -669,7 +957,7 @@ bool CircuitBench::export_netlist()
     std::ofstream file(std::filesystem::path(projects_dir()) / (name + ".cir"));
     file << "* RTR-Bench circuit " << name << "\n";
     file << "* sources marked external are commanded by the bench (outputs, potentiometers, switches)\n";
-    for (const std::string &line : core::netlist(circuit_, circuit_.nets(), drives_, shunts_)) {
+    for (const std::string &line : core::netlist(circuit_, circuit_.nets(), drives_, shunts_, loads_)) {
         file << line << "\n";
     }
     file << ".end\n";
@@ -713,6 +1001,7 @@ void CircuitBench::clear_circuit()
     drive_amps_.clear();
     tap_level_.clear();
     selected_id_ = -1;
+    selected_wire_ = -1;
     drag_id_ = -1;
     placing_ = false;
     wiring_ = false;
@@ -915,6 +1204,27 @@ std::vector<core::Shunt> CircuitBench::wired_shunts() const
     return shunts;
 }
 
+// The measuring inputs of the bench (oscilloscope, logic analyzer,
+// multimeter on volts) are ideal: they take nothing from the node they are
+// on. An audio output of the computer is not a probe but where the signal
+// goes: a line input, 47 kilohm seen from the circuit.
+std::vector<core::Load> CircuitBench::wired_loads() const
+{
+    std::vector<core::Load> loads;
+    for (const core::Tap &tap : circuit_.taps) {
+        InstrumentId wired{Instrument::Scope, 0};
+        int channel = 0;
+        if (!app_.port_wired_to(App::circuit_port_base + tap.slot, wired, channel) || wired.kind != Instrument::Audio) {
+            continue;
+        }
+        const InstrumentBase *instrument = app_.instrument(wired);
+        if (instrument && !instrument->channel_drives(channel)) {
+            loads.push_back(core::Load{tap.slot, 47e3});
+        }
+    }
+    return loads;
+}
+
 // Hands the circuit as it is now to the simulator. The run in progress is
 // replaced; every node that is still at the same place on the schematic
 // starts at the voltage it had, so an edit does not restart the circuit.
@@ -932,7 +1242,7 @@ void CircuitBench::rebuild()
         point_net_.clear();
         return;
     }
-    std::vector<std::string> lines = core::netlist(circuit_, nets_, drives_, shunts_);
+    std::vector<std::string> lines = core::netlist(circuit_, nets_, drives_, shunts_, loads_);
     std::vector<bool> done(static_cast<size_t>(nets_.count), false);
     for (const auto &entry : point_net_) {
         double volts = 0.0;
@@ -966,6 +1276,7 @@ void CircuitBench::rebuild()
             }
         }
     }
+    sim.set_digital(core::digital(circuit_, nets_, drives_, shunts_));
     sim.load(std::move(lines), false);
 
     point_net_.clear();
@@ -1026,7 +1337,11 @@ void CircuitBench::update_sources()
 {
     sim::Ngspice &sim = sim::Ngspice::instance();
     for (const core::Part &part : circuit_.parts) {
-        if (part.kind == core::PartKind::Potentiometer || part.kind == core::PartKind::Switch) {
+        if (part.kind == core::PartKind::Potentiometer) {
+            sim.set_resistance(core::pot_resistor(part, 0), core::pot_ohms(part, 0));
+            sim.set_resistance(core::pot_resistor(part, 1), core::pot_ohms(part, 1));
+        }
+        if (part.kind == core::PartKind::Switch) {
             sim.set_constant(core::control_source(part), std::clamp(part.setting, 0.0, 1.0));
         }
         if (part.kind == core::PartKind::VSine) {
@@ -1086,8 +1401,17 @@ void CircuitBench::produce(int64_t now_ns, std::vector<core::DigitalEvent> &even
         shunts_ = std::move(shunts);
         dirty_ = true;
     }
+    std::vector<core::Load> loads = wired_loads();
+    bool same_loads = loads.size() == loads_.size();
+    for (size_t i = 0; same_loads && i < loads.size(); i++) {
+        same_loads = loads[i].slot == loads_[i].slot && loads[i].ohms == loads_[i].ohms;
+    }
+    if (!same_loads) {
+        loads_ = std::move(loads);
+        dirty_ = true;
+    }
     // A part being dragged is in transit: the simulator waits for it to land.
-    if (dirty_ && drag_id_ < 0) {
+    if (dirty_ && drag_id_ < 0 && !block_drag_) {
         rebuild();
     }
     if (watches_dirty_) {
@@ -1441,6 +1765,8 @@ void CircuitBench::draw_canvas(ui::Window &window, ImVec2 min, ImVec2 max)
         if (placing_ || wiring_) {
             placing_ = false;
             wiring_ = false;
+        } else if (!block_.empty() || !block_wires_.empty()) {
+            clear_block();
         } else if (hovered && hover_part >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
             // The menu of the part under the mouse.
             selected_id_ = circuit_.parts[static_cast<size_t>(hover_part)].id;
@@ -1463,7 +1789,16 @@ void CircuitBench::draw_canvas(ui::Window &window, ImVec2 min, ImVec2 max)
             }
         }
         if (ImGui::IsKeyPressed(ImGuiKey_Delete, false) || ImGui::IsKeyPressed(ImGuiKey_Backspace, false)) {
-            if (wire_here >= 0 && !pin_here) {
+            if (!block_.empty() || !block_wires_.empty()) {
+                remove_block();
+                changed();
+            } else if (selected_wire_ >= 0 && static_cast<size_t>(selected_wire_) < circuit_.wires.size()) {
+                // The wire that was clicked, wherever the mouse is now; the
+                // wire the click had started is dropped.
+                circuit_.wires.erase(circuit_.wires.begin() + selected_wire_);
+                wiring_ = false;
+                changed();
+            } else if (wire_here >= 0 && !pin_here) {
                 circuit_.wires.erase(circuit_.wires.begin() + wire_here);
                 changed();
             } else if (target >= 0) {
@@ -1494,9 +1829,6 @@ void CircuitBench::draw_canvas(ui::Window &window, ImVec2 min, ImVec2 max)
         if (ImGui::IsKeyPressed(ImGuiKey_F, false) && !io.KeyCtrl) {
             fit_ask_ = true;
         }
-        if (ImGui::IsKeyPressed(ImGuiKey_Space, false)) {
-            paused_ = !paused_;
-        }
         // The keys that replace the circuit come last: what was under the
         // mouse is no longer there.
         bool replaced = false;
@@ -1522,7 +1854,15 @@ void CircuitBench::draw_canvas(ui::Window &window, ImVec2 min, ImVec2 max)
     if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && hover_part >= 0 && !placing_ && !wiring_) {
         drag_id_ = -1;
         toggle_or_edit(static_cast<size_t>(hover_part), true);
+    } else if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && ImGui::IsKeyDown(ImGuiKey_Space) &&
+               !io.WantTextInput) {
+        // With the space bar held the mouse takes the whole sheet.
+        panning_ = true;
     } else if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        const int clicked_wire = !placing_ && !wiring_ && !app_.cable_offered() && hover_tap < 0 && wire_here >= 0 && !pin_here
+                                     ? wire_here
+                                     : -1;
+        selected_wire_ = -1;
         if (placing_ && place_entry_) {
             size_t index = circuit_.add_part(place_entry_->kind, g.x, g.y, place_rotation_);
             if (place_entry_->value > 0.0) {
@@ -1556,16 +1896,71 @@ void CircuitBench::draw_canvas(ui::Window &window, ImVec2 min, ImVec2 max)
             wire_from_ = g;
             changed();
         } else if (on_net) {
+            // A click on a wire selects it, and a new wire starts there.
             wiring_ = true;
             wire_from_ = g;
+            selected_wire_ = clicked_wire;
+            if (clicked_wire >= 0) {
+                selected_id_ = -1;
+                clear_block();
+            }
+        } else if (hover_part >= 0 && io.KeyShift) {
+            // Shift adds the part to the block, or takes it out.
+            const int id = circuit_.parts[static_cast<size_t>(hover_part)].id;
+            if (block_.empty() && part_index(selected_id_) >= 0 && selected_id_ != id) {
+                block_.push_back(selected_id_);
+            }
+            if (in_block(id)) {
+                block_.erase(std::remove(block_.begin(), block_.end(), id), block_.end());
+            } else {
+                block_.push_back(id);
+            }
+            selected_id_ = -1;
+        } else if (hover_part >= 0 && in_block(circuit_.parts[static_cast<size_t>(hover_part)].id)) {
+            block_drag_ = true;
+            block_moved_ = false;
+            drag_grid_ = g;
+            drag_circuit_ = circuit_;
+            drag_wires_ = block_wires_;
         } else if (hover_part >= 0) {
+            clear_block();
             selected_id_ = circuit_.parts[static_cast<size_t>(hover_part)].id;
             drag_id_ = selected_id_;
             drag_moved_ = false;
             drag_grid_ = g;
+            drag_circuit_ = circuit_;
         } else {
+            // On the empty sheet: a rectangle that selects what it holds.
             selected_id_ = -1;
-            panning_ = true;
+            clear_block();
+            banding_ = true;
+            band_x_ = mgx;
+            band_y_ = mgy;
+        }
+    }
+    if (banding_ && !ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+        banding_ = false;
+        select_block(band_x_, band_y_, mgx, mgy);
+    }
+    if (block_drag_) {
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            if (g != drag_grid_ || block_moved_) {
+                circuit_ = drag_circuit_;
+                block_wires_ = drag_wires_;
+                move_block(g.x - drag_grid_.x, g.y - drag_grid_.y);
+                block_moved_ = true;
+                nets_ = circuit_.nets();
+            }
+        } else {
+            block_drag_ = false;
+            if (block_moved_) {
+                // The block stays selected after the move.
+                std::vector<int> parts = block_;
+                std::vector<char> wires = block_wires_;
+                changed();
+                block_ = std::move(parts);
+                block_wires_ = std::move(wires);
+            }
         }
     }
     if (drag_id_ >= 0) {
@@ -1573,9 +1968,9 @@ void CircuitBench::draw_canvas(ui::Window &window, ImVec2 min, ImVec2 max)
         if (index < 0) {
             drag_id_ = -1;
         } else if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-            if (g != drag_grid_) {
-                move_part(static_cast<size_t>(index), g.x - drag_grid_.x, g.y - drag_grid_.y);
-                drag_grid_ = g;
+            if (g != drag_grid_ || drag_moved_) {
+                circuit_ = drag_circuit_;
+                move_part(static_cast<size_t>(part_index(drag_id_)), g.x - drag_grid_.x, g.y - drag_grid_.y);
                 drag_moved_ = true;
                 nets_ = circuit_.nets();
             }
@@ -1619,7 +2014,8 @@ void CircuitBench::draw_canvas(ui::Window &window, ImVec2 min, ImVec2 max)
     for (size_t w = 0; w < circuit_.wires.size(); w++) {
         const core::CircuitWire &wire = circuit_.wires[w];
         uint32_t colour = have_nets ? volts_colour(net_volts(nets_.wire_net[w])) : t.readout_dim;
-        if (static_cast<int>(w) == wire_here && !wiring_ && !placing_) {
+        if ((static_cast<int>(w) == wire_here && !wiring_ && !placing_) || static_cast<int>(w) == selected_wire_ ||
+            (w < block_wires_.size() && block_wires_[w])) {
             colour = t.led_warn;
         }
         draw->AddLine(view.at(wire.a), view.at(wire.b), colour, line_w * 1.2f);
@@ -1664,7 +2060,9 @@ void CircuitBench::draw_canvas(ui::Window &window, ImVec2 min, ImVec2 max)
     for (size_t i = 0; i < circuit_.parts.size(); i++) {
         const core::Part &part = circuit_.parts[i];
         const core::PartDef &def = core::part_def(part.kind);
-        uint32_t colour = part.id == selected_id_ ? t.led_warn : (static_cast<int>(i) == hover_part ? t.key_text : t.readout);
+        uint32_t colour = part.id == selected_id_ || in_block(part.id)
+                              ? t.led_warn
+                              : (static_cast<int>(i) == hover_part ? t.key_text : t.readout);
         Pen pen{draw, view, &part, colour, line_w};
         const core::CatalogEntry &entry = core::catalog_entry(part);
         float glow = 0.0f;
@@ -1675,6 +2073,9 @@ void CircuitBench::draw_canvas(ui::Window &window, ImVec2 min, ImVec2 max)
             glow = static_cast<float>(std::clamp(amps / 0.01, 0.0, 1.0));
         }
         draw_symbol(pen, glow, glow_colour(entry.glow));
+        if (part.kind == core::PartKind::Bbd && view.pitch >= 7.0f * s) {
+            draw_pin_names(pen, t.label_dim);
+        }
         for (int j = 0; j < def.pins; j++) {
             ImVec2 at = view.at(core::pin_position(part, j));
             draw->AddCircleFilled(at, 1.8f * s * std::sqrt(zoom_), colour, 10);
@@ -1720,6 +2121,9 @@ void CircuitBench::draw_canvas(ui::Window &window, ImVec2 min, ImVec2 max)
             text_anchor(part.kind, ax, ay);
             place_text(draw, pen.at(ax, ay), pen.at(0.0f, 0.0f), text.c_str(), t.readout);
         }
+    }
+    if (banding_) {
+        draw->AddRect(view.at(band_x_, band_y_), view.at(mgx, mgy), t.led_warn, 0.0f, 0, 1.2f * s);
     }
     // The cables plugged in.
     ImFont *small = ui::fonts().small;

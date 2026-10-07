@@ -13,6 +13,8 @@ add_executable(rtr-bench-tests
     scope_engine_test.cpp
     math_formula_test.cpp
     circuit_test.cpp
+    digital_test.cpp
+    delay_quality.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/theme.cpp)
 target_include_directories(rtr-bench-tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(rtr-bench-tests PRIVATE rtr-core Catch2::Catch2WithMain)

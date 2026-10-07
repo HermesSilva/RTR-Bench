@@ -1,0 +1,1133 @@
+{
+  "parts": [
+    {
+      "id": 1,
+      "number": 7,
+      "kind": "CAPACITOR",
+      "x": 136,
+      "y": 4,
+      "rotation": 1,
+      "value": 0.0001,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 2,
+      "number": 1,
+      "kind": "GROUND",
+      "x": 136,
+      "y": 6,
+      "rotation": 0,
+      "value": 0.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 3,
+      "number": 1,
+      "kind": "RESISTOR",
+      "x": 8,
+      "y": 30,
+      "rotation": 1,
+      "value": 47.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 4,
+      "number": 1,
+      "kind": "GROUND",
+      "x": 8,
+      "y": 32,
+      "rotation": 0,
+      "value": 0.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 5,
+      "number": 1,
+      "kind": "POTENTIOMETER",
+      "x": 12,
+      "y": 18,
+      "rotation": 1,
+      "value": 100000.0,
+      "value2": 0.0,
+      "setting": 0.8,
+      "model": ""
+    },
+    {
+      "id": 6,
+      "number": 1,
+      "kind": "GROUND",
+      "x": 12,
+      "y": 20,
+      "rotation": 0,
+      "value": 0.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 7,
+      "number": 1,
+      "kind": "CAPACITOR",
+      "x": 18,
+      "y": 18,
+      "rotation": 0,
+      "value": 1e-07,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 8,
+      "number": 2,
+      "kind": "RESISTOR",
+      "x": 16,
+      "y": 26,
+      "rotation": 0,
+      "value": 22000.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 9,
+      "number": 2,
+      "kind": "CAPACITOR",
+      "x": 22,
+      "y": 26,
+      "rotation": 0,
+      "value": 1.5e-07,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 10,
+      "number": 3,
+      "kind": "RESISTOR",
+      "x": 30,
+      "y": 4,
+      "rotation": 1,
+      "value": 2200.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 11,
+      "number": 4,
+      "kind": "POTENTIOMETER",
+      "x": 30,
+      "y": 10,
+      "rotation": 1,
+      "value": 4700.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 12,
+      "number": 4,
+      "kind": "RESISTOR",
+      "x": 30,
+      "y": 16,
+      "rotation": 1,
+      "value": 5600.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 13,
+      "number": 5,
+      "kind": "RESISTOR",
+      "x": 30,
+      "y": 34,
+      "rotation": 1,
+      "value": 1000.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 14,
+      "number": 1,
+      "kind": "GROUND",
+      "x": 30,
+      "y": 36,
+      "rotation": 0,
+      "value": 0.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 15,
+      "number": 3,
+      "kind": "CAPACITOR",
+      "x": 36,
+      "y": 4,
+      "rotation": 1,
+      "value": 1e-05,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 16,
+      "number": 7,
+      "kind": "RESISTOR",
+      "x": 36,
+      "y": 16,
+      "rotation": 1,
+      "value": 100000.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 17,
+      "number": 1,
+      "kind": "BBD",
+      "x": 48,
+      "y": 28,
+      "rotation": 0,
+      "value": 512.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": "TDA1022"
+    },
+    {
+      "id": 18,
+      "number": 1,
+      "kind": "GROUND",
+      "x": 43,
+      "y": 33,
+      "rotation": 0,
+      "value": 0.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 19,
+      "number": 9,
+      "kind": "RESISTOR",
+      "x": 62,
+      "y": 28,
+      "rotation": 0,
+      "value": 47000.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 20,
+      "number": 5,
+      "kind": "CAPACITOR",
+      "x": 66,
+      "y": 32,
+      "rotation": 1,
+      "value": 8.2e-10,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 21,
+      "number": 1,
+      "kind": "GROUND",
+      "x": 66,
+      "y": 34,
+      "rotation": 0,
+      "value": 0.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 22,
+      "number": 10,
+      "kind": "RESISTOR",
+      "x": 70,
+      "y": 28,
+      "rotation": 0,
+      "value": 22000.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 23,
+      "number": 6,
+      "kind": "CAPACITOR",
+      "x": 76,
+      "y": 32,
+      "rotation": 1,
+      "value": 4.7e-09,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 24,
+      "number": 1,
+      "kind": "GROUND",
+      "x": 76,
+      "y": 34,
+      "rotation": 0,
+      "value": 0.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 25,
+      "number": 3,
+      "kind": "POTENTIOMETER",
+      "x": 90,
+      "y": 32,
+      "rotation": 1,
+      "value": 1000000.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 26,
+      "number": 1,
+      "kind": "GROUND",
+      "x": 90,
+      "y": 34,
+      "rotation": 0,
+      "value": 0.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 27,
+      "number": 12,
+      "kind": "RESISTOR",
+      "x": 106,
+      "y": 24,
+      "rotation": 1,
+      "value": 100000.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 28,
+      "number": 11,
+      "kind": "RESISTOR",
+      "x": 100,
+      "y": 18,
+      "rotation": 0,
+      "value": 100000.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 29,
+      "number": 3,
+      "kind": "OPAMP",
+      "x": 127,
+      "y": 19,
+      "rotation": 0,
+      "value": 0.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": "CA3140"
+    },
+    {
+      "id": 30,
+      "number": 15,
+      "kind": "RESISTOR",
+      "x": 110,
+      "y": 12,
+      "rotation": 0,
+      "value": 2200000.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 31,
+      "number": 1,
+      "kind": "GROUND",
+      "x": 127,
+      "y": 24,
+      "rotation": 0,
+      "value": 0.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 32,
+      "number": 13,
+      "kind": "RESISTOR",
+      "x": 116,
+      "y": 6,
+      "rotation": 1,
+      "value": 100000.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 33,
+      "number": 14,
+      "kind": "RESISTOR",
+      "x": 116,
+      "y": 26,
+      "rotation": 1,
+      "value": 100000.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 34,
+      "number": 1,
+      "kind": "GROUND",
+      "x": 116,
+      "y": 28,
+      "rotation": 0,
+      "value": 0.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 35,
+      "number": 8,
+      "kind": "CAPACITOR",
+      "x": 136,
+      "y": 19,
+      "rotation": 0,
+      "value": 1e-07,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 36,
+      "number": 2,
+      "kind": "NOR",
+      "x": 16,
+      "y": 48,
+      "rotation": 0,
+      "value": 0.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": "CD4001"
+    },
+    {
+      "id": 37,
+      "number": 2,
+      "kind": "NOR",
+      "x": 30,
+      "y": 48,
+      "rotation": 0,
+      "value": 0.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": "CD4001"
+    },
+    {
+      "id": 38,
+      "number": 2,
+      "kind": "NOR",
+      "x": 40,
+      "y": 48,
+      "rotation": 0,
+      "value": 0.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": "CD4001"
+    },
+    {
+      "id": 39,
+      "number": 2,
+      "kind": "NOR",
+      "x": 51,
+      "y": 48,
+      "rotation": 0,
+      "value": 0.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": "CD4001"
+    },
+    {
+      "id": 40,
+      "number": 8,
+      "kind": "RESISTOR",
+      "x": 22,
+      "y": 54,
+      "rotation": 1,
+      "value": 4700.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 41,
+      "number": 2,
+      "kind": "POTENTIOMETER",
+      "x": 22,
+      "y": 60,
+      "rotation": 1,
+      "value": 100000.0,
+      "value2": 0.0,
+      "setting": 0.1,
+      "model": ""
+    },
+    {
+      "id": 42,
+      "number": 4,
+      "kind": "CAPACITOR",
+      "x": 35,
+      "y": 56,
+      "rotation": 1,
+      "value": 1.5e-09,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 43,
+      "number": 6,
+      "kind": "RESISTOR",
+      "x": 8,
+      "y": 56,
+      "rotation": 1,
+      "value": 10000.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 44,
+      "number": 1,
+      "kind": "GROUND",
+      "x": 16,
+      "y": 50,
+      "rotation": 0,
+      "value": 0.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 45,
+      "number": 1,
+      "kind": "GROUND",
+      "x": 30,
+      "y": 50,
+      "rotation": 0,
+      "value": 0.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 46,
+      "number": 1,
+      "kind": "GROUND",
+      "x": 40,
+      "y": 50,
+      "rotation": 0,
+      "value": 0.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 47,
+      "number": 1,
+      "kind": "GROUND",
+      "x": 51,
+      "y": 50,
+      "rotation": 0,
+      "value": 0.0,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    },
+    {
+      "id": 48,
+      "number": 9,
+      "kind": "CAPACITOR",
+      "x": 98,
+      "y": 32,
+      "rotation": 0,
+      "value": 4.7e-07,
+      "value2": 0.0,
+      "setting": 0.5,
+      "model": ""
+    }
+  ],
+  "wires": [
+    [
+      26,
+      0,
+      144,
+      0
+    ],
+    [
+      136,
+      0,
+      136,
+      2
+    ],
+    [
+      4,
+      26,
+      10,
+      26
+    ],
+    [
+      10,
+      26,
+      14,
+      26
+    ],
+    [
+      8,
+      26,
+      8,
+      28
+    ],
+    [
+      10,
+      26,
+      10,
+      16
+    ],
+    [
+      10,
+      16,
+      12,
+      16
+    ],
+    [
+      14,
+      18,
+      16,
+      18
+    ],
+    [
+      20,
+      18,
+      22,
+      18
+    ],
+    [
+      22,
+      18,
+      22,
+      -3
+    ],
+    [
+      22,
+      -3,
+      96,
+      -3
+    ],
+    [
+      96,
+      -3,
+      96,
+      18
+    ],
+    [
+      96,
+      18,
+      98,
+      18
+    ],
+    [
+      18,
+      26,
+      20,
+      26
+    ],
+    [
+      24,
+      26,
+      40,
+      26
+    ],
+    [
+      30,
+      0,
+      30,
+      2
+    ],
+    [
+      30,
+      6,
+      30,
+      8
+    ],
+    [
+      30,
+      12,
+      30,
+      14
+    ],
+    [
+      30,
+      18,
+      30,
+      30
+    ],
+    [
+      30,
+      30,
+      40,
+      30
+    ],
+    [
+      30,
+      30,
+      30,
+      32
+    ],
+    [
+      36,
+      0,
+      36,
+      2
+    ],
+    [
+      32,
+      10,
+      36,
+      10
+    ],
+    [
+      36,
+      6,
+      36,
+      10
+    ],
+    [
+      36,
+      10,
+      36,
+      14
+    ],
+    [
+      36,
+      18,
+      36,
+      26
+    ],
+    [
+      48,
+      0,
+      48,
+      23
+    ],
+    [
+      56,
+      26,
+      58,
+      26
+    ],
+    [
+      58,
+      26,
+      58,
+      30
+    ],
+    [
+      58,
+      30,
+      56,
+      30
+    ],
+    [
+      58,
+      28,
+      60,
+      28
+    ],
+    [
+      64,
+      28,
+      68,
+      28
+    ],
+    [
+      66,
+      28,
+      66,
+      30
+    ],
+    [
+      72,
+      28,
+      90,
+      28
+    ],
+    [
+      90,
+      28,
+      90,
+      30
+    ],
+    [
+      76,
+      28,
+      76,
+      30
+    ],
+    [
+      92,
+      32,
+      96,
+      32
+    ],
+    [
+      106,
+      32,
+      106,
+      26
+    ],
+    [
+      106,
+      22,
+      106,
+      18
+    ],
+    [
+      102,
+      18,
+      124,
+      18
+    ],
+    [
+      104,
+      18,
+      104,
+      12
+    ],
+    [
+      104,
+      12,
+      108,
+      12
+    ],
+    [
+      112,
+      12,
+      132,
+      12
+    ],
+    [
+      132,
+      12,
+      132,
+      19
+    ],
+    [
+      130,
+      19,
+      132,
+      19
+    ],
+    [
+      132,
+      19,
+      134,
+      19
+    ],
+    [
+      127,
+      0,
+      127,
+      17
+    ],
+    [
+      127,
+      21,
+      127,
+      24
+    ],
+    [
+      116,
+      0,
+      116,
+      4
+    ],
+    [
+      116,
+      8,
+      116,
+      20
+    ],
+    [
+      116,
+      20,
+      124,
+      20
+    ],
+    [
+      116,
+      20,
+      116,
+      24
+    ],
+    [
+      138,
+      19,
+      140,
+      19
+    ],
+    [
+      13,
+      47,
+      13,
+      49
+    ],
+    [
+      27,
+      47,
+      27,
+      49
+    ],
+    [
+      37,
+      47,
+      37,
+      49
+    ],
+    [
+      48,
+      47,
+      48,
+      49
+    ],
+    [
+      19,
+      48,
+      27,
+      48
+    ],
+    [
+      33,
+      48,
+      37,
+      48
+    ],
+    [
+      43,
+      48,
+      48,
+      48
+    ],
+    [
+      48,
+      33,
+      48,
+      47
+    ],
+    [
+      54,
+      48,
+      56,
+      48
+    ],
+    [
+      56,
+      48,
+      56,
+      36
+    ],
+    [
+      56,
+      36,
+      53,
+      36
+    ],
+    [
+      53,
+      36,
+      53,
+      33
+    ],
+    [
+      22,
+      48,
+      22,
+      52
+    ],
+    [
+      22,
+      56,
+      22,
+      58
+    ],
+    [
+      22,
+      62,
+      22,
+      64
+    ],
+    [
+      24,
+      60,
+      24,
+      64
+    ],
+    [
+      8,
+      64,
+      35,
+      64
+    ],
+    [
+      35,
+      48,
+      35,
+      54
+    ],
+    [
+      35,
+      58,
+      35,
+      64
+    ],
+    [
+      8,
+      58,
+      8,
+      64
+    ],
+    [
+      8,
+      54,
+      8,
+      48
+    ],
+    [
+      8,
+      48,
+      13,
+      48
+    ],
+    [
+      26,
+      0,
+      26,
+      43
+    ],
+    [
+      16,
+      43,
+      51,
+      43
+    ],
+    [
+      16,
+      43,
+      16,
+      46
+    ],
+    [
+      30,
+      43,
+      30,
+      46
+    ],
+    [
+      40,
+      43,
+      40,
+      46
+    ],
+    [
+      51,
+      43,
+      51,
+      46
+    ],
+    [
+      100,
+      32,
+      106,
+      32
+    ]
+  ],
+  "taps": [
+    {
+      "slot": 0,
+      "x": 144,
+      "y": 0
+    },
+    {
+      "slot": 1,
+      "x": 4,
+      "y": 26
+    },
+    {
+      "slot": 2,
+      "x": 10,
+      "y": 16
+    },
+    {
+      "slot": 3,
+      "x": 140,
+      "y": 19
+    }
+  ],
+  "cables": [
+    {
+      "slot": 0,
+      "instrument": "PSU",
+      "instance": 0,
+      "channel": 0
+    },
+    {
+      "slot": 1,
+      "instrument": "GEN",
+      "instance": 0,
+      "channel": 0
+    },
+    {
+      "slot": 2,
+      "instrument": "SCOPE",
+      "instance": 0,
+      "channel": 0
+    },
+    {
+      "slot": 3,
+      "instrument": "SCOPE",
+      "instance": 0,
+      "channel": 1
+    }
+  ],
+  "project": "bbd-delay",
+  "selected": -1,
+  "zoom": 0.8,
+  "pan": [
+    0.0,
+    60.0
+  ],
+  "size": [
+    1600,
+    880
+  ]
+}

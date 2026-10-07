@@ -45,6 +45,12 @@ private:
     void add_wire(core::GridPoint a, core::GridPoint b);
     void move_pins(const std::vector<core::GridPoint> &from, const std::vector<core::GridPoint> &to, int moving_id);
     void move_part(size_t index, int dx, int dy);
+    // The block: parts and wires selected together with a rectangle.
+    bool in_block(int id) const;
+    void clear_block();
+    void select_block(float x0, float y0, float x1, float y1);
+    void move_block(int dx, int dy);
+    void remove_block();
     void rotate_part(size_t index);
     void remove_part(size_t index);
     int part_index(int id) const;
@@ -71,6 +77,7 @@ private:
     double net_volts(int net) const;
     std::vector<core::Drive> wired_drives() const;
     std::vector<core::Shunt> wired_shunts() const;
+    std::vector<core::Load> wired_loads() const;
 
     // Drawing.
     void draw_toolbar(ui::Window &window, ImVec2 min, ImVec2 max);
@@ -89,6 +96,7 @@ private:
     // The simulator side.
     std::vector<core::Drive> drives_;
     std::vector<core::Shunt> shunts_;   // the multimeter tips that measure current
+    std::vector<core::Load> loads_;     // what the inputs of the bench put on their taps
     std::vector<std::pair<std::string, double>> vectors_;            // latest value of every vector
     std::vector<std::pair<core::GridPoint, std::string>> point_net_; // where the nets of the running circuit are
     struct Watch {
@@ -138,10 +146,22 @@ private:
     bool wiring_ = false;
     core::GridPoint wire_from_{0, 0};
     int selected_id_ = -1;
+    int selected_wire_ = -1;     // the wire that was clicked: Del removes it
     int drag_id_ = -1;
     bool drag_moved_ = false;
     core::GridPoint drag_grid_{0, 0};
     bool panning_ = false;
+    std::vector<int> block_;            // ids of the parts selected together
+    std::vector<char> block_wires_;     // per wire: selected with them
+    bool banding_ = false;              // the selection rectangle is being drawn
+    float band_x_ = 0.0f;               // where it started, in grid units
+    float band_y_ = 0.0f;
+    bool block_drag_ = false;
+    bool block_moved_ = false;
+    // The circuit as it was when a drag started: every position of the
+    // mouse moves from there, not from the previous position.
+    core::Circuit drag_circuit_;
+    std::vector<char> drag_wires_;
     int edit_id_ = -1;
     bool edit_open_ = false;
     char edit_text_[32] = "";

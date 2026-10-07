@@ -55,6 +55,13 @@ const PartDef defs[part_kind_count] = {
      0.0, "", {-2, -1}, {2, 1}},
     {PartKind::Ammeter, "AMMETER", "AM", "AM", 2, {{-2, 0}, {2, 0}, {0, 0}, {0, 0}, {0, 0}}, {"+", "-", "", "", ""}, 0.0,
      "", {-2, -1}, {2, 1}},
+    // A two-input NOR gate: inputs, output, supply.
+    {PartKind::Nor, "NOR", "NOR", "U", 5, {{-3, -1}, {-3, 1}, {3, 0}, {0, -2}, {0, 2}}, {"A", "B", "Y", "V+", "V-"}, 0.0,
+     "", {-3, -2}, {3, 2}},
+    // A bucket-brigade delay line: signal in, the two clock phases, the two
+    // outputs (the last stage and the one after it), the bias and the supply.
+    {PartKind::Bbd, "BBD", "BBD", "U", 8, {{-8, -2}, {0, 5}, {5, 5}, {8, -2}, {8, 2}, {-8, 2}, {0, -5}, {-5, 5}},
+     {"IN", "CP1", "CP2", "OUT1", "OUT2", "VBB", "V+", "V-"}, 512.0, "", {-8, -5}, {8, 5}},
 };
 
 // The catalog. The first entry of each kind is its generic part. Model
@@ -116,11 +123,13 @@ const CatalogEntry entry_table[] = {
      0.0, 0.0, Glow::Red},
     {"Op amp", "Amplifiers", "operational amplifier, 1 MHz", PartKind::OpAmp, 0.0, nullptr, 0.0, 0.0, Glow::Red},
     {"LM358", "Amplifiers", "single supply, 1 MHz, output down to V-", PartKind::OpAmp, 0.0,
-     "gbw=1meg hp=1.5 hn=0.02 isup=0.5m", 0.0, 0.0, Glow::Red},
-    {"TL072", "Amplifiers", "JFET input, 3 MHz, audio", PartKind::OpAmp, 0.0, "gbw=3meg hp=1.5 hn=1.5 isup=1.4m", 0.0, 0.0,
+     "gbw=1meg hp=1.5 hn=0.02 isup=0.5m sr=0.4meg", 0.0, 0.0, Glow::Red},
+    {"TL072", "Amplifiers", "JFET input, 3 MHz, audio", PartKind::OpAmp, 0.0, "gbw=3meg hp=1.5 hn=1.5 isup=1.4m sr=13meg", 0.0, 0.0,
      Glow::Red},
-    {"NE5532", "Amplifiers", "low noise, 10 MHz, audio", PartKind::OpAmp, 0.0, "gbw=10meg hp=1.2 hn=1.2 isup=4m", 0.0, 0.0,
+    {"NE5532", "Amplifiers", "low noise, 10 MHz, audio", PartKind::OpAmp, 0.0, "gbw=10meg hp=1.2 hn=1.2 isup=4m sr=9meg", 0.0, 0.0,
      Glow::Red},
+    {"CA3140", "Amplifiers", "MOSFET input, 4.5 MHz, output down to V-", PartKind::OpAmp, 0.0,
+     "gbw=4.5meg hp=2 hn=0.15 isup=4m sr=9meg", 0.0, 0.0, Glow::Red},
     {"DC source", "Sources", "DC voltage source", PartKind::VSource, 0.0, nullptr, 0.0, 0.0, Glow::Red},
     {"Battery 9 V", "Sources", "9 V battery", PartKind::VSource, 9.0, nullptr, 0.0, 0.0, Glow::Red},
     {"Cell 1.5 V", "Sources", "1.5 V cell", PartKind::VSource, 1.5, nullptr, 0.0, 0.0, Glow::Red},
@@ -138,10 +147,18 @@ const CatalogEntry entry_table[] = {
     {"Voltmeter", "Meters", "shows the voltage between its pins, 10 Mohm", PartKind::Voltmeter, 0.0, nullptr, 0.0, 0.0,
      Glow::Red},
     {"Ammeter", "Meters", "shows the current through it, in series", PartKind::Ammeter, 0.0, nullptr, 0.0, 0.0, Glow::Red},
+    {"NOR gate", "Logic", "CMOS two-input NOR gate, 3 to 15 V", PartKind::Nor, 0.0, nullptr, 0.0, 0.0, Glow::Red},
+    {"CD4001", "Logic", "one of the four NOR gates of a CD4001", PartKind::Nor, 0.0, "", 0.0, 0.0, Glow::Red},
+    {"Delay line", "Delay lines", "bucket-brigade delay line: stages / (2 x clock)", PartKind::Bbd, 0.0, nullptr, 0.0,
+     0.0, Glow::Red},
+    {"TDA1022", "Delay lines", "bucket-brigade delay line, 512 stages, clock 5 to 500 kHz", PartKind::Bbd, 512.0, "", 0.0, 0.0,
+     Glow::Red},
+    {"MN3007", "Delay lines", "bucket-brigade delay line, 1024 stages", PartKind::Bbd, 1024.0, "", 0.0, 0.0, Glow::Red},
 };
 
 // The models every netlist carries: a signal diode, a red LED, small-signal
-// transistors and an operational amplifier with one pole, rail-limited.
+// transistors and an operational amplifier with one pole, limited in slew
+// rate and by its rails.
 const char *const library[] = {
     ".model rtr_d d(is=2.52n rs=0.568 n=1.752 cjo=4p m=0.4 tt=20n)",
     ".model rtr_led d(is=1e-18 n=2 rs=3 cjo=20p)",
@@ -149,17 +166,28 @@ const char *const library[] = {
     ".model rtr_pnp pnp(is=1e-14 bf=200 vaf=100 cje=8p cjc=4p tf=0.4n rb=10)",
     ".model rtr_nmos nmos(level=1 vto=2 kp=1 lambda=0.01 cbd=20p cbs=20p)",
     ".model rtr_pmos pmos(level=1 vto=-2 kp=0.5 lambda=0.01 cbd=20p cbs=20p)",
-    // Gain-bandwidth product, headroom to each rail and supply current are
-    // parameters: the amplifiers of the catalog are this one with their numbers.
-    ".subckt rtr_opamp inp inn out vcc vee gbw=1meg hp=1.2 hn=1.2 isup=1.5m",
+    // Gain-bandwidth product, slew rate, headroom to each rail and supply
+    // current are parameters: the amplifiers of the catalog are this one
+    // with their numbers. A transconductance into a capacitor, limited in
+    // current (the slew rate), with the capacitor held between the rails.
+    ".model rtr_lim d(is=1e-9 n=0.2 rs=10)",
+    ".subckt rtr_opamp inp inn out vcc vee gbw=1meg hp=1.2 hn=1.2 isup=1.5m sr=1meg",
     "rin inp inn 10meg",
     "iq vcc vee {isup}",
-    "b1 a 0 v = max(min(1e5*(v(inp)-v(inn)), v(vcc)-{hp}), v(vee)+{hn})",
-    "r1 a b 1k",
-    "c1 b 0 {15.9155/gbw}",
+    "b1 0 b i = max(min(1m*(v(inp)-v(inn)), {sr*159.155u/gbw}), {-sr*159.155u/gbw})",
+    "r1 b 0 100meg",
+    "c1 b 0 {159.155u/gbw}",
+    // The two limits never cross, whatever the supply is: without one they
+    // meet half way.
+    "bhi hi 0 v = max(v(vcc)-{hp}, 0.5*(v(vcc)+v(vee)))",
+    "blo lo 0 v = min(v(vee)+{hn}, 0.5*(v(vcc)+v(vee)))",
+    "dhi b hi rtr_lim",
+    "dlo lo b rtr_lim",
     "e1 c 0 b 0 1",
     "ro c out 75",
     ".ends",
+    // The protection diodes of the inputs of a CMOS gate.
+    ".model rtr_clamp d(is=1e-14 rs=200)",
     // A path to ground from every node: nothing floats, whatever is drawn.
     ".options rshunt=1e9",
 };
@@ -482,6 +510,12 @@ std::string element_name(const Part &part)
     case PartKind::Voltmeter:
         letter = "r";
         break;
+    case PartKind::Nor:
+        letter = "x";
+        break;
+    case PartKind::Bbd:
+        letter = "b";
+        break;
     case PartKind::Ground:
         break;
     }
@@ -499,6 +533,17 @@ std::string control_source(const Part &part)
     return "vk" + std::to_string(part.id);
 }
 
+std::string pot_resistor(const Part &part, int half)
+{
+    return "rv" + std::to_string(part.id) + (half == 0 ? "a" : "b");
+}
+
+double pot_ohms(const Part &part, int half)
+{
+    const double position = std::clamp(part.setting, 0.0, 1.0);
+    return 1.0 + std::max(part.value, 1.0) * (half == 0 ? position : 1.0 - position);
+}
+
 std::string drive_source(int slot)
 {
     return "vd" + std::to_string(slot);
@@ -510,6 +555,157 @@ std::string shunt_vector(int slot)
 }
 
 namespace {
+
+// What a bucket-brigade line loses from input to output: 4 dB, the typical
+// figure of the TDA1022 data sheet (Philips, 1976) into 47 kilohm.
+constexpr double delay_gain = 0.63;
+
+// The sources of the parts the session computes.
+std::string gate_source(const Part &part)
+{
+    return "vg" + std::to_string(part.id);
+}
+
+std::string delay_source(const Part &part)
+{
+    return "vq" + std::to_string(part.id);
+}
+
+// The net each gate drives, in the order of the gates.
+std::vector<int> gate_nets(const Circuit &circuit, const NetMap &map)
+{
+    std::vector<int> nets;
+    for (size_t i = 0; i < circuit.parts.size(); i++) {
+        if (circuit.parts[i].kind == PartKind::Nor) {
+            nets.push_back(map.pin_net[i * max_part_pins + 2]);
+        }
+    }
+    return nets;
+}
+
+// The island: which nets are its nodes and which parts are in it.
+struct IslandMap {
+    std::vector<int> node;    // per net: its number in the island, -1 when not of it
+    std::vector<char> part;   // per part: in the island
+    int count = 0;
+};
+
+bool passive(PartKind kind)
+{
+    return kind == PartKind::Resistor || kind == PartKind::Capacitor || kind == PartKind::Potentiometer;
+}
+
+// A net is of the island when only resistors, capacitors, potentiometers
+// and the inputs and outputs of gates are on it, no output of the bench
+// drives it, and what those parts reach on their other pins is of the
+// island too, the ground or the supply of the gates. A group of such nets
+// counts when it has a capacitor and an input of a gate: something that
+// keeps time for the logic.
+IslandMap find_island(const Circuit &circuit, const NetMap &map, const std::vector<Drive> &drives,
+                      const std::vector<Shunt> &shunts)
+{
+    const auto nets = static_cast<size_t>(std::max(map.count, 0));
+    IslandMap out;
+    out.node.assign(nets, -1);
+    out.part.assign(circuit.parts.size(), 0);
+    std::vector<char> ok(nets, 1);
+    std::vector<char> supply(nets, 0);
+    auto net_of = [&](size_t part, int pin) { return map.pin_net[part * max_part_pins + static_cast<size_t>(pin)]; };
+    for (size_t n = 0; n < nets; n++) {
+        ok[n] = map.name[n] != "0";
+    }
+    for (size_t t = 0; t < circuit.taps.size() && t < map.tap_net.size(); t++) {
+        bool busy = false;
+        for (const Drive &drive : drives) {
+            busy = busy || drive.slot == circuit.taps[t].slot;
+        }
+        for (const Shunt &shunt : shunts) {
+            busy = busy || shunt.slot == circuit.taps[t].slot || shunt.slot_com == circuit.taps[t].slot;
+        }
+        if (busy && map.tap_net[t] >= 0) {
+            ok[static_cast<size_t>(map.tap_net[t])] = 0;
+        }
+    }
+    for (size_t i = 0; i < circuit.parts.size(); i++) {
+        const PartKind kind = circuit.parts[i].kind;
+        for (int j = 0; j < part_def(kind).pins; j++) {
+            const auto net = static_cast<size_t>(net_of(i, j));
+            if (kind == PartKind::Nor && j >= 3) {
+                supply[net] = 1;
+                ok[net] = 0;
+            } else if (!passive(kind) && kind != PartKind::Nor) {
+                ok[net] = 0;
+            }
+        }
+    }
+    for (bool changed = true; changed;) {
+        changed = false;
+        for (size_t i = 0; i < circuit.parts.size(); i++) {
+            const PartKind kind = circuit.parts[i].kind;
+            if (!passive(kind)) {
+                continue;
+            }
+            bool outside = false;
+            for (int j = 0; j < part_def(kind).pins; j++) {
+                const auto net = static_cast<size_t>(net_of(i, j));
+                outside = outside || (!ok[net] && map.name[net] != "0" && !supply[net]);
+            }
+            for (int j = 0; outside && j < part_def(kind).pins; j++) {
+                const auto net = static_cast<size_t>(net_of(i, j));
+                changed = changed || ok[net];
+                ok[net] = 0;
+            }
+        }
+    }
+    // The groups: nets joined by the parts.
+    std::vector<int> group(nets);
+    std::iota(group.begin(), group.end(), 0);
+    for (size_t i = 0; i < circuit.parts.size(); i++) {
+        const PartKind kind = circuit.parts[i].kind;
+        int first = -1;
+        for (int j = 0; passive(kind) && j < part_def(kind).pins; j++) {
+            const int net = net_of(i, j);
+            if (ok[static_cast<size_t>(net)]) {
+                if (first >= 0) {
+                    unite(group, first, net);
+                }
+                first = net;
+            }
+        }
+    }
+    std::vector<char> timed(nets, 0);
+    std::vector<char> read(nets, 0);
+    for (size_t i = 0; i < circuit.parts.size(); i++) {
+        const PartKind kind = circuit.parts[i].kind;
+        for (int j = 0; j < part_def(kind).pins; j++) {
+            const int net = net_of(i, j);
+            if (!ok[static_cast<size_t>(net)]) {
+                continue;
+            }
+            const auto root = static_cast<size_t>(find_root(group, net));
+            timed[root] = timed[root] || kind == PartKind::Capacitor;
+            read[root] = read[root] || (kind == PartKind::Nor && j < 2);
+        }
+    }
+    for (size_t n = 0; n < nets; n++) {
+        const auto root = static_cast<size_t>(find_root(group, static_cast<int>(n)));
+        if (ok[n] && timed[root] && read[root]) {
+            out.node[n] = out.count++;
+        }
+    }
+    for (size_t i = 0; i < circuit.parts.size(); i++) {
+        const PartKind kind = circuit.parts[i].kind;
+        for (int j = 0; passive(kind) && j < part_def(kind).pins; j++) {
+            out.part[i] = out.part[i] || out.node[static_cast<size_t>(net_of(i, j))] >= 0;
+        }
+    }
+    return out;
+}
+
+std::string island_source(const std::string &node)
+{
+    return "vi" + node;
+}
 
 // The name of the model of a catalog entry in the netlist: "m_2n3904".
 std::string model_name(const CatalogEntry &entry)
@@ -529,7 +725,7 @@ std::string model_name(const CatalogEntry &entry)
 }  // namespace
 
 std::vector<std::string> netlist(const Circuit &circuit, const NetMap &map, const std::vector<Drive> &drives,
-                                 const std::vector<Shunt> &shunts)
+                                 const std::vector<Shunt> &shunts, const std::vector<Load> &loads)
 {
     std::vector<std::string> lines;
     std::vector<const CatalogEntry *> models;   // the real parts in use: one model card each
@@ -543,8 +739,19 @@ std::vector<std::string> netlist(const Circuit &circuit, const NetMap &map, cons
         }
         return model_name(entry);
     };
+    const std::vector<int> gates = gate_nets(circuit, map);
+    const IslandMap island = find_island(circuit, map, drives, shunts);
+    for (size_t n = 0; n < island.node.size(); n++) {
+        // A node of the island is shown to the simulator by a source.
+        if (island.node[n] >= 0) {
+            lines.push_back(island_source(map.name[n]) + " " + map.name[n] + " 0 dc 0 external");
+        }
+    }
     for (size_t i = 0; i < circuit.parts.size(); i++) {
         const Part &part = circuit.parts[i];
+        if (island.part[i]) {
+            continue;
+        }
         auto node = [&](int pin) {
             int net = map.pin_net[i * max_part_pins + static_cast<size_t>(pin)];
             return net >= 0 ? map.name[static_cast<size_t>(net)] : std::string("0");
@@ -563,18 +770,12 @@ std::vector<std::string> netlist(const Circuit &circuit, const NetMap &map, cons
         case PartKind::Inductor:
             lines.push_back(name + " " + node(0) + " " + node(1) + " " + number_text(std::max(part.value, 1e-12)));
             break;
-        case PartKind::Potentiometer: {
-            // Two resistances set by the wiper position, which is the voltage
-            // of a source the bench commands: turning it needs no new netlist.
-            const std::string k = "k" + id;
-            const std::string r = number_text(std::max(part.value, 1.0));
-            lines.push_back(control_source(part) + " " + k + " 0 dc 0 external");
-            lines.push_back(cat({name, "a ", node(0), " ", node(2), " i = ", difference(node(0), node(2)), " / (1 + ", r,
-                                 "*v(", k, "))"}));
-            lines.push_back(cat({name, "b ", node(2), " ", node(1), " i = ", difference(node(2), node(1)), " / (1 + ", r,
-                                 "*(1 - v(", k, ")))"}));
+        case PartKind::Potentiometer:
+            // Two plain resistors: turning it alters them in the simulator,
+            // with no new netlist.
+            lines.push_back(cat({pot_resistor(part, 0), " ", node(0), " ", node(2), " ", number_text(pot_ohms(part, 0))}));
+            lines.push_back(cat({pot_resistor(part, 1), " ", node(2), " ", node(1), " ", number_text(pot_ohms(part, 1))}));
             break;
-        }
         case PartKind::Switch: {
             const std::string k = "k" + id;
             lines.push_back(control_source(part) + " " + k + " 0 dc 0 external");
@@ -623,6 +824,44 @@ std::vector<std::string> netlist(const Circuit &circuit, const NetMap &map, cons
                                  entry.model ? " " : "", entry.model ? entry.model : ""}));
             break;
         }
+        case PartKind::Nor: {
+            // The bench reads the inputs and the supply, and gives the
+            // voltage of the output to a source, behind the resistance of
+            // the output. An input that no gate drives has its protection
+            // diodes. What is on the island is computed there.
+            const std::string o = "go" + id;
+            for (int k = 0; k < 2; k++) {
+                const int net = map.pin_net[i * max_part_pins + static_cast<size_t>(k)];
+                const bool driven = std::find(gates.begin(), gates.end(), net) != gates.end();
+                if (driven || island.node[static_cast<size_t>(net)] >= 0 || (k == 1 && node(1) == node(0))) {
+                    continue;
+                }
+                const std::string letter = k == 0 ? "a" : "b";
+                lines.push_back(cat({"dg", id, letter, "h ", node(k), " ", node(3), " rtr_clamp"}));
+                lines.push_back(cat({"dg", id, letter, "l ", node(4), " ", node(k), " rtr_clamp"}));
+            }
+            if (island.node[static_cast<size_t>(map.pin_net[i * max_part_pins + 2])] < 0) {
+                lines.push_back(gate_source(part) + " " + o + " 0 dc 0 external");
+                lines.push_back(cat({"rg", id, "o ", o, " ", node(2), " 400"}));
+            }
+            break;
+        }
+        case PartKind::Bbd: {
+            // The session reads the signal, the clock and the supply; the
+            // sample that leaves the line comes back in a source, and goes
+            // to both outputs.
+            const std::string o = "bbd" + id + "o";
+            const std::string vss = node(7);
+            lines.push_back(delay_source(part) + " " + o + " 0 dc 0 external");
+            lines.push_back(cat({"rbbd", id, "a ", o, " ", node(3), " 2k"}));
+            lines.push_back(cat({"rbbd", id, "b ", o, " ", node(4), " 2k"}));
+            lines.push_back(cat({"rbbd", id, "i ", node(0), " ", vss, " 10meg"}));
+            lines.push_back(cat({"rbbd", id, "g ", node(5), " ", vss, " 10meg"}));
+            lines.push_back(cat({"rbbd", id, "p ", node(6), " ", vss, " 12k"}));
+            lines.push_back(cat({"cbbd", id, "a ", node(1), " ", vss, " 30p"}));
+            lines.push_back(cat({"cbbd", id, "b ", node(2), " ", vss, " 30p"}));
+            break;
+        }
         }
     }
     for (const Drive &drive : drives) {
@@ -656,6 +895,12 @@ std::vector<std::string> netlist(const Circuit &circuit, const NetMap &map, cons
         lines.push_back(cat({"vs", slot, " ", in, " s", slot, " dc 0"}));
         lines.push_back(cat({"rs", slot, " s", slot, " ", out, " 0.01"}));
     }
+    for (const Load &load : loads) {
+        const std::string at = tap_node(load.slot);
+        if (!at.empty() && at != "0") {
+            lines.push_back(cat({"rl", std::to_string(load.slot), " ", at, " 0 ", number_text(std::max(load.ohms, 1.0))}));
+        }
+    }
     for (const CatalogEntry *entry : models) {
         const char *type = "d";
         switch (entry->kind) {
@@ -679,7 +924,92 @@ std::vector<std::string> netlist(const Circuit &circuit, const NetMap &map, cons
     for (const char *line : library) {
         lines.emplace_back(line);
     }
+    if (!gates.empty()) {
+        // The output of a gate jumps. The simulator would follow every jump
+        // with a burst of short steps, which a clock of some kilohertz turns
+        // into a circuit slower than the bench clock; it is told to keep its
+        // step, and the gates place their changes between the time points.
+        lines.emplace_back(".options trtol=50");
+    }
     return lines;
+}
+
+Digital digital(const Circuit &circuit, const NetMap &map, const std::vector<Drive> &drives, const std::vector<Shunt> &shunts)
+{
+    Digital out;
+    const std::vector<int> driven = gate_nets(circuit, map);
+    const IslandMap island = find_island(circuit, map, drives, shunts);
+    out.island.nodes.resize(static_cast<size_t>(island.count));
+    out.island.sources.resize(static_cast<size_t>(island.count));
+    for (size_t n = 0; n < island.node.size(); n++) {
+        if (island.node[n] >= 0) {
+            out.island.nodes[static_cast<size_t>(island.node[n])] = map.name[n];
+            out.island.sources[static_cast<size_t>(island.node[n])] = island_source(map.name[n]);
+        }
+    }
+    for (size_t i = 0; i < circuit.parts.size(); i++) {
+        const Part &part = circuit.parts[i];
+        auto net = [&](int pin) { return map.pin_net[i * max_part_pins + static_cast<size_t>(pin)]; };
+        auto node = [&](int pin) { return net(pin) >= 0 ? map.name[static_cast<size_t>(net(pin))] : std::string("0"); };
+        auto driver = [&](int pin) {
+            auto found = std::find(driven.begin(), driven.end(), net(pin));
+            return found == driven.end() ? -1 : static_cast<int>(found - driven.begin());
+        };
+        // A pin as the island numbers it.
+        auto place = [&](int pin) {
+            if (island.node[static_cast<size_t>(net(pin))] >= 0) {
+                return island.node[static_cast<size_t>(net(pin))];
+            }
+            const std::string name = node(pin);
+            if (name == "0") {
+                return -1;
+            }
+            auto found = std::find(out.island.fixed.begin(), out.island.fixed.end(), name);
+            if (found == out.island.fixed.end()) {
+                out.island.fixed.push_back(name);
+                return -1 - static_cast<int>(out.island.fixed.size());
+            }
+            return -2 - static_cast<int>(found - out.island.fixed.begin());
+        };
+        if (island.part[i] && part.kind == PartKind::Resistor) {
+            out.island.parts.push_back(IslandPart{false, place(0), place(1), std::max(part.value, 1e-3), std::string()});
+        }
+        if (island.part[i] && part.kind == PartKind::Capacitor) {
+            out.island.parts.push_back(IslandPart{true, place(0), place(1), std::max(part.value, 1e-15), std::string()});
+        }
+        if (island.part[i] && part.kind == PartKind::Potentiometer) {
+            out.island.parts.push_back(IslandPart{false, place(0), place(2), pot_ohms(part, 0), pot_resistor(part, 0)});
+            out.island.parts.push_back(IslandPart{false, place(2), place(1), pot_ohms(part, 1), pot_resistor(part, 1)});
+        }
+        if (part.kind == PartKind::Nor) {
+            LogicGate gate;
+            for (int k = 0; k < 2; k++) {
+                gate.input[k] = node(k);
+                gate.driver[k] = driver(k);
+            }
+            for (int k = 0; k < 3; k++) {
+                gate.node[k] = island.node[static_cast<size_t>(net(k))];
+            }
+            gate.high = node(3);
+            gate.low = node(4);
+            gate.source = gate_source(part);
+            out.gates.push_back(std::move(gate));
+        }
+        if (part.kind == PartKind::Bbd) {
+            DelayLine line;
+            line.input = node(0);
+            line.clock[0] = node(1);
+            line.clock[1] = node(2);
+            line.clock_gate = driver(1);
+            line.high = node(6);
+            line.low = node(7);
+            line.source = delay_source(part);
+            line.samples = std::clamp(static_cast<int>(std::lround(part.value / 2.0)), 1, 8192);
+            line.gain = delay_gain;
+            out.delays.push_back(std::move(line));
+        }
+    }
+    return out;
 }
 
 bool parse_value(const std::string &text, double &value)

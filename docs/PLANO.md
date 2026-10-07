@@ -72,7 +72,7 @@ gravação/replay (7), M2k (8).
 | D15 | Ligação com a bancada | qualquer ponto do esquema aceita o cabo de um aparelho (**porta de circuito**, 20000 + n); entrada lê a tensão do nó, saída comanda o nó (fonte: 50 mΩ; gerador: 50 Ω). Terra do circuito = terra da bancada (D10 mantida). Revê a D6: no circuito simulado a tensão é a do simulador | o mesmo gesto dos outros fios |
 | D16 | Sem script em execução | nada de Python nem de script rodando com o programa, nem os do ngspice (`spinit`, `.control`): a netlist é gerada em memória e o motor é comandado pela API. Scripts só para build e ferramentas | exigência do usuário. Tira a libsigrokdecode (Python) |
 | D17 | Biblioteca de peças | três níveis: núcleo vivo desenhado por nós sobre os modelos do ngspice; catálogo de peças reais (parâmetros SPICE); importação (`.kicad_sym`, `.lib`/`.subckt` de fabricante). Módulos: qualquer circuito salvo como bloco. Sem limites de queima (a "fumaça" era brincadeira) | o que há pronto cobre comportamento e a cauda longa de símbolos |
-| D18 | Digital | lógica pelo XSPICE do próprio ngspice, na mesma netlist; processadores como peças: o Pi emulado (GPIO no esquema) e depois AVR pelo simavr; HDL só se for pedido | "por enquanto" (usuário) |
+| D18 | Digital | lógica **calculada pela sessão do simulador**, entre os pontos de tempo do ngspice (revisto em 2026-10-05; antes: XSPICE na mesma netlist); processadores como peças: o Pi emulado (GPIO no esquema) e depois AVR pelo simavr; HDL só se for pedido | medido em 2026-10-05 com um oscilador de portas a 11 kHz: portas analógicas (fonte B) 0,03×, XSPICE 0,02× a 0,06×, na sessão 1,00× |
 | D19 | Aparelhos | os nossos, com bibliotecas abertas nas partes pesadas (FFT com KISS FFT/PFFFT; Bode pela análise AC do ngspice; decodificadores escritos por nós ou portados da libscopehal); exportar VCD para o PulseView | trocar por aparelhos prontos perderia a aparência e a integração |
 | D20 | Licença | fica para o fim; qualquer licença aberta serve (o projeto é didático), o que permite peças GPL (libsigrok, biblioteca do Qucs-S, simavr) | decisão do usuário |
 | D21 | Áudio do PC | **miniaudio**; microfone, entrada de linha e caixas como bornes no rack | um cabeçalho, WASAPI e ALSA/PulseAudio |
@@ -176,14 +176,149 @@ monitor e é desenhada na escala dele). As duas cenas do emulador
 contador (`scripts/run-web.sh 8080 scope` no WSL, depois `rtr-bench --probe
 emulator --tile on --screenshot ...`).
 
+**Portas lógicas e linha de atraso (2026-10-05)** — pedido do usuário:
+montar no LAB um circuito de revista (eco/chorus com **TDA1022**, relógio de
+**CD4001** e misturador com **CA3140**) para ser simulado. Peças novas:
+`NOR` (porta CMOS de duas entradas com pinos de alimentação; CD4001 no
+catálogo, categoria Logic), `BBD` (linha de atraso de baldes, desenhada como
+caixa com os nomes dos pinos; TDA1022 de 512 estágios e MN3007 de 1024,
+categoria Delay lines) e o CA3140 entre os amplificadores; `max_part_pins`
+passou de 5 para 8. **D18 revista**: o relógio de portas, simulado como
+circuito analógico ou pelo XSPICE, custa de 60 a 140 passos do ngspice por
+ciclo e derruba a bancada para 0,02× a 0,06× do tempo real. As portas e a
+linha de atraso passaram a ser **calculadas pela sessão** (`sim::Ngspice`,
+`set_digital`, descritas por `core::digital`): a cada ponto de tempo aceito a
+sessão lê as entradas e a alimentação, decide o nível de cada porta e devolve
+a tensão da saída numa fonte externa; a linha de atraso guarda as amostras
+num anel e entrega a que sai. Entrada ligada a outra porta muda quando a
+porta muda (atraso de 60 ns); entrada vinda do circuito é seguida pela
+inclinação até metade da alimentação, para a troca cair no instante dela e
+não no ponto seguinte; a troca é uma rampa do tamanho de um passo, centrada
+nesse instante. A netlist de um circuito com portas leva `.options trtol=50`
+(o simulador mantém o passo de 20 µs em vez de perseguir cada salto).
+**Medido** no projeto `docs/circuits/bbd-delay.json` (também em
+`build/.RT-Lab`): 1,00× com o relógio a 6,25 kHz (atraso de 41 ms); o
+relógio confere com a conta à mão dentro de uns 3% até ~8 kHz, e **não passa
+de 12,5 kHz** (um quarto da taxa de amostragem: uma troca de porta por
+passo) — no circuito, P2 abaixo de ~25% deveria chegar a dezenas de kHz e
+fica em 12,5 kHz. O período trava em número inteiro de passos de 20 µs.
+`rtr-sim-check PROJETO [RITMO]` roda um projeto do LAB sem janela e mostra a
+velocidade, os passos e a frequência do relógio das linhas de atraso.
+**Limites do modelo**: a linha de atraso tem ganho 1 e leva o nível DC da
+entrada para a saída (a real atenua alguns dB e tem outro nível DC); as
+portas não consomem corrente da alimentação. **Observado no circuito**: o
+caminho do sinal atrasado é acoplado em DC ao misturador (P3 → R12), então
+P3 mexe também no ponto de repouso do CA3140 — com este modelo só a faixa
+de ~14% a 25% deixa a saída fora da saturação; a saída depois de C8 fica
+flutuando sem carga (uma ponta de osciloscópio real poria 1 MΩ ali).
+
+**Som limpo pelo circuito (2026-10-05, madrugada)** — o usuário ligou música
+real no eco e ouviu ruído; a bancada marcava 0,38× do tempo real. Quatro
+causas, quatro correções: (1) **potenciômetro** deixou de ser duas fontes B
+comandadas e passou a ser **dois resistores** (`rv<id>a`, `rv<id>b`) que a
+sessão altera com o circuito rodando (`set_resistance`: `bg_halt`, `alter`,
+`bg_resume`, e a linha guardada muda para as corridas seguintes) — o eco foi
+de 1,07× para 1,9× de capacidade; (2) o **amplificador operacional** limitava
+a tensão antes do polo, o que dava uma taxa de subida de ~1 V/ms (áudio de
+1 kHz não passava de ±0,3 V): agora é uma transcondutância limitada em
+corrente (parâmetro `sr`, taxa de subida de cada peça do catálogo) sobre um
+capacitor preso entre os trilhos por diodos, com limites que nunca se cruzam
+sem alimentação; (3) **carga das entradas da bancada** no nó (`core::Load`):
+ponta de osciloscópio e de analisador 1 MΩ, voltímetro 10 MΩ, saída de áudio
+do PC 47 kΩ — sem ela a saída depois de um capacitor ficava flutuando em
+vários volts DC e estourava a saída de áudio; (4) no projeto, C6 passou a
+4,7 nF (com 47 nF, como está no desenho, o atraso só passa abaixo de 50 Hz;
+o primeiro estágio do filtro corta em 4 kHz, o que aponta para erro de
+impressão) e os ajustes ficaram em P1 80%, P2 30% (relógio de 10 kHz, atraso
+de 26 ms), P3 19%, P4 50%: com a entrada de áudio no fundo de escala a saída
+fica em ±0,55 V, sem ceifar. Medido dentro da bancada: 1,02× aos 60 s.
+**Ligação de áudio**: o player toca no cabo virtual (CABLE Input), o circuito
+recebe de IN CABLE Output e sai num OUT de verdade; ligar a saída no próprio
+cabo fecha um laço, e usar PLAYING de um dispositivo bloqueia o OUT dele.
+
+**Bloco no editor (2026-10-05)** — pedido do usuário: arrastar no vazio
+desenha um retângulo que seleciona as peças (todos os pinos dentro) e os fios
+(as duas pontas dentro); arrastar uma peça do bloco move o bloco inteiro, e o
+que chega de fora **não perde a ligação** (o fio que termina no bloco estica;
+onde um pino de outra peça ou o meio de um fio encostava nasce um fio — a
+regra do meio de fio vale também para mover uma peça só). Shift+clique põe ou
+tira uma peça, Del apaga o bloco, Esc solta. **Arrastar a folha agora é só
+com a barra de espaço** (ou o botão do meio); a barra de espaço deixou de
+alternar RUN/PAUSED. Não testado com o mouse por mim.
+
+**Motor digital com passo próprio (2026-10-05)** — o usuário achou o som do
+atraso muito ruim e o P3 (mistura) matava o áudio. Causas: (1) o relógio de
+portas não passava de 12,5 kHz (uma troca por passo de 20 µs), então a linha
+amostrava a música a 10 kHz sem filtro e dobrava os agudos; no circuito real
+o relógio vai a dezenas de kHz. (2) o desenho liga P3 em DC ao misturador.
+**Feito**: `src/sim/digital.*` (`sim::DigitalEngine`, puro e testado sem o
+ngspice) substitui o cálculo por previsão/rampa. Ele resolve com passo de
+**0,5 µs** as portas, as linhas de atraso e a **ilha** — os resistores,
+capacitores e potenciômetros que só encostam em portas, no terra ou na
+alimentação delas e têm um capacitor e uma entrada de porta (um oscilador
+RC). A ilha **sai da netlist** (`core::find_island`); cada nó dela aparece
+para o ngspice como uma fonte (`vi<nó>`) com a média do que aconteceu no
+passo, e os diodos de proteção das entradas são resolvidos nela. A linha de
+atraso lê o sinal interpolado no instante de cada subida do relógio e
+entrega a média do que saiu no passo anterior. Um nó com saída da bancada ou
+amperímetro não entra na ilha. **Medido**: relógio do eco de 3,5 kHz a
+58,8 kHz conforme P2 (antes travava em 12,5 kHz), capacidade de 1,8× a 1,9×
+em toda a faixa; tom de 440 Hz pelo atraso com 71 dB sobre o resto (antes
+47 dB). No projeto entrou **C9 470 nF em série com R12** (não está no
+desenho da revista: sem ele qualquer giro de P3 satura o CA3140) e os
+ajustes ficaram em P1 80%, P2 10% (20,8 kHz, 12 ms), P3 50%, P4 50%.
+Limites: portas fora de ilha com entrada analógica mudam no ponto seguinte
+do simulador (até 20 µs de atraso); só NOR por enquanto.
+
+**Qualidade do atraso e projeto pela folha de dados (2026-10-05)** — o
+usuário achou o som da linha "horrível" e pediu para buscar as especificações
+dos fabricantes e redesenhar. **No motor**: a linha de atraso passou a ler o
+sinal numa grade regular de 20 µs com um sinc janelado de 24 pontos (a
+interpolação curta de antes dobrava as imagens da grade: um tom de 5 kHz saía
+com espúrio em 3,3 kHz a −52 dB; agora −87 dB), a escada de saída é
+integrada em trechos de 2,5 µs e filtrada até a grade (64 pontos), e a troca
+de uma porta leva o instante dentro do passo de 0,5 µs. A linha fica ~350 µs
+atrás por isso. `tests/delay_quality.cpp` mede a pureza de um tom sem o
+ngspice. Perda de inserção de 4 dB na linha (`DelayLine::gain`). **Folha de
+dados do TDA1022 (Philips, 1976)**, lida em PDF: pino 9 = alimentação
+negativa (−15 V nominal, −10 a −18), pino 16 = terra/substrato, pino 13 =
+porta tetrodo (1 V acima do nível baixo do relógio), relógio de 5 a 500 kHz
+com as duas fases em oposição e amplitude da alimentação, entrada com
+polarização de ~−5 V (classe A, trimpot de 4,7 kΩ entre 6,8 kΩ e 2,7 kΩ, 100
+kΩ até o pino 5), sinal máximo 2,5 V eficazes para 1% de distorção,
+atenuação típica de 4 dB, **carga de 47 kΩ nas saídas 8 e 12 unidas**,
+capacitor de 100 nF e **filtro ativo de 12 dB/oitava em 15 kHz** (120 kΩ,
+210 pF, 72 kΩ, 180 kΩ, 42 pF, ganho de +3,5 dB), relógio mínimo de 50 kHz
+para essa banda (na prática sinal ≤ 0,3 a 0,5 do relógio), S/R de 74 dB, e a
+ligação de **duas linhas em série** com 100 nF entre elas. O circuito da
+revista não tem a carga de 47 kΩ, nem o acoplamento, nem o filtro ativo, e
+usa relógio de 3 a 60 kHz. CA3140 (Renesas): 4,5 MHz, 9 V/µs, saída até
+0,13 V do trilho negativo e ~3 V abaixo do positivo; CD4001B (TI): 60 ns a
+10 V. **Projeto novo `docs/circuits/tda1022-delay.json`** (também em
+`build/.RT-Lab`), a aplicação da folha de dados virada para +12 V: duas
+linhas em série, carga de 47 kΩ ao trilho do substrato, filtro de realimentação
+múltipla no CA3140 que também mistura o sinal direto (C de 330 pF em vez de
+210 pF por causa do segundo resistor de entrada: ~12 kHz), referência de 6 V
+desacoplada, relógio de 29 a 83 kHz (R8 4,7 kΩ + RV2 10 kΩ, 1 nF, 47 kΩ até a
+porta): atraso de 17 a 6 ms. **Medido**: caminho atrasado com espúrios
+abaixo de −62 dB até 10 kHz, saída de ±0,9 V com 1 V de ruído na entrada,
+capacidade de 1,6×. Os níveis DC do modelo da linha continuam arbitrários (a
+folha de dados não dá a tensão DC de saída).
+
+**Pontas ideais (2026-10-05, decisão do usuário)**: osciloscópio, analisador
+e multímetro em volts **não carregam o nó** (a carga de 1 MΩ/10 MΩ posta mais
+cedo no mesmo dia saiu). Só a saída de áudio do PC continua como carga de
+47 kΩ, porque é o destino do sinal e não uma ponta. Um nó atrás de um
+capacitor, só com uma ponta, fica flutuando no DC que tiver.
+
 **Próximas levas, pela ordem**: (2) editor — seleção múltipla com retângulo,
 copiar/colar, mover fio, fios que acompanham em ângulo reto, rótulos de nó
 (net labels) e símbolos de alimentação VCC/VEE, texto livre; (3) análises
 fora do tempo real numa janela própria — Bode (AC), varredura DC, transiente
 de precisão, Fourier/THD, ruído, varredura de parâmetro; (4) mais peças —
 transformador, relé, lâmpada, buzzer/alto-falante, motor DC, 555, reguladores
-78xx/LM317, JFET, optoacoplador, display de 7 segmentos, portas lógicas e
-flip-flops (XSPICE); (5) pontas de medida no esquema com V/I/f ao vivo e
+78xx/LM317, JFET, optoacoplador, display de 7 segmentos, as outras portas
+lógicas e flip-flops (na sessão, como a NOR),  (5) pontas de medida no esquema com V/I/f ao vivo e
 animação da corrente nos fios; (6) módulos (subcircuitos próprios),
 importação de `.kicad_sym` e `.lib`/`.subckt`; (7) verificação elétrica
 (nó solto, sem terra, saída em curto), lista de materiais, exportar imagem;
@@ -193,8 +328,8 @@ importação de `.kicad_sym` e `.lib`/`.subckt`; (7) verificação elétrica
 (ponta numa perna de peça); fonte com saída negativa/simétrica; áudio do PC
 (D21); desfazer/refazer, copiar e colar, seleção múltipla; subida de nível dos
 aparelhos (D19: FFT/espectro, Bode, XY, fase, estatística, exportação);
-catálogo de peças reais e módulos (D17); lógica XSPICE e GPIO do Pi no esquema
-(D18); medir o soluço de áudio numa edição; Linux (`libngspice0`).
+catálogo de peças reais e módulos (D17); mais lógica na sessão e GPIO do Pi
+no esquema (D18); medir o soluço de áudio numa edição; Linux (`libngspice0`).
 
 ## 2. Para que serve
 

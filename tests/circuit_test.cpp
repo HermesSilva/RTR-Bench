@@ -88,6 +88,28 @@ TEST_CASE("a divider has three nets and a netlist")
     CHECK(has_line(lines, "r2 " + b + " 0 1000"));
     CHECK(has_line(lines, "vd0 d0 0 dc 0 external"));
     CHECK(has_line(lines, "rd0 d0 " + a + " 50"));
+
+    // An audio output of the computer on tap 1 loads its node.
+    lines = core::netlist(c, map, drives, {}, {core::Load{1, 1e6}});
+    CHECK(has_line(lines, "rl1 " + b + " 0 1000000"));
+}
+
+TEST_CASE("a potentiometer is two resistors")
+{
+    core::Circuit c;
+    size_t pot = c.add_part(core::PartKind::Potentiometer, 2, 0, 0);   // A (0,0), B (4,0), wiper (2,-2)
+    c.add_part(core::PartKind::Ground, 4, 0, 0);
+    c.parts[pot].value = 10e3;
+    c.parts[pot].setting = 0.25;
+    CHECK(core::pot_resistor(c.parts[pot], 0) == "rv1a");
+    CHECK(core::pot_ohms(c.parts[pot], 0) == Approx(2501.0));
+    CHECK(core::pot_ohms(c.parts[pot], 1) == Approx(7501.0));
+    core::NetMap map = c.nets();
+    std::vector<std::string> lines = core::netlist(c, map, {});
+    const std::string a = map.name[static_cast<size_t>(map.pin_net[pot * core::max_part_pins])];
+    const std::string w = map.name[static_cast<size_t>(map.pin_net[pot * core::max_part_pins + 2])];
+    CHECK(has_line(lines, "rv1a " + a + " " + w + " 2501"));
+    CHECK(has_line(lines, "rv1b " + w + " 0 7501"));
 }
 
 TEST_CASE("wires join what they touch and only that")
@@ -182,6 +204,49 @@ TEST_CASE("an ammeter of the bench goes in series")
     CHECK(has_line(lines, "vs2 n4 s2 dc 0"));
     CHECK(has_line(lines, "rs2 s2 0 0.01"));
     CHECK(core::shunt_vector(2) == "vs2#branch");
+}
+
+TEST_CASE("gates and delay lines are computed by the session")
+{
+    core::Circuit c;
+    // The output of the first gate (3,0) is input A of the second; the
+    // output of the second (9,1) clocks the delay line at (20,5).
+    size_t g1 = c.add_part(core::PartKind::Nor, 0, 0, 0);
+    size_t g2 = c.add_part(core::PartKind::Nor, 6, 1, 0);
+    size_t line = c.add_part(core::PartKind::Bbd, 20, 0, 0);
+    c.add_part(core::PartKind::Ground, 0, 2, 0);
+    c.wires.push_back(core::CircuitWire{{9, 1}, {20, 5}});
+    core::NetMap map = c.nets();
+    const std::string out1 = map.name[static_cast<size_t>(map.pin_net[g1 * core::max_part_pins + 2])];
+
+    core::Digital digital = core::digital(c, map);
+    REQUIRE(digital.gates.size() == 2);
+    CHECK(digital.gates[0].driver[0] == -1);
+    CHECK(digital.gates[0].low == "0");
+    CHECK(digital.gates[0].source == "vg1");
+    CHECK(digital.gates[1].input[0] == out1);
+    CHECK(digital.gates[1].driver[0] == 0);
+    CHECK(digital.gates[1].driver[1] == -1);
+    REQUIRE(digital.delays.size() == 1);
+    CHECK(digital.delays[0].clock_gate == 1);
+    CHECK(digital.delays[0].samples == 256);
+    CHECK(digital.delays[0].source == "vq3");
+    c.parts[line].value = 1024.0;
+    CHECK(core::digital(c, map).delays[0].samples == 512);
+
+    std::vector<std::string> lines = core::netlist(c, map, {});
+    CHECK(has_line(lines, "vg1 go1 0 dc 0 external"));
+    CHECK(has_line(lines, "rg1o go1 " + out1 + " 400"));
+    CHECK(has_line(lines, "vq3 bbd3o 0 dc 0 external"));
+    CHECK(has_line(lines, ".options trtol=50"));
+    // Protection diodes on the inputs no gate drives, and only there.
+    auto starts = [&](const std::string &prefix) {
+        return std::any_of(lines.begin(), lines.end(), [&](const std::string &l) { return l.compare(0, prefix.size(), prefix) == 0; });
+    };
+    CHECK(starts("dg1ah "));
+    CHECK(starts("dg2bh "));
+    CHECK_FALSE(starts("dg2ah "));
+    CHECK(c.parts[g2].kind == core::PartKind::Nor);
 }
 
 TEST_CASE("a wave is a function of time")

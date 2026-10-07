@@ -94,6 +94,7 @@ add_library(rtr-core STATIC
     src/core/math_formula.cpp
     src/core/circuit.cpp
     src/sim/ngspice.cpp
+    src/sim/digital.cpp
     src/probes/tcp_client.cpp
     src/probes/emulator_probe.cpp
     src/probes/demo_probe.cpp)
@@ -187,7 +188,7 @@ target_link_libraries(rtr-probe-dump PRIVATE rtr-core)
 
 # Console diagnostic: runs two circuits through the ngspice session.
 add_executable(rtr-sim-check tools/sim_check.cpp)
-target_link_libraries(rtr-sim-check PRIVATE rtr-core)
+target_link_libraries(rtr-sim-check PRIVATE rtr-core nlohmann_json::nlohmann_json)
 
 if(RTR_BENCH_TIDY)
     find_program(CLANG_TIDY_EXE NAMES clang-tidy)

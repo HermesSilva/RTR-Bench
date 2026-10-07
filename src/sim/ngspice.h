@@ -17,6 +17,7 @@
 #include <utility>
 #include <vector>
 
+#include "core/circuit.h"
 #include "core/probe.h"
 
 namespace sim {
@@ -46,11 +47,20 @@ public:
     // voltage (a control) or a wave (an output of the bench).
     void set_constant(const std::string &source, double volts);
     void set_wave(const std::string &source, const core::WaveSpec &spec, bool on);
+    // The value of a resistor of the circuit, changed while it runs (a
+    // potentiometer being turned). The first value given for a resistor is
+    // taken to be the one the circuit was loaded with.
+    void set_resistance(const std::string &resistor, double ohms);
     // A source that plays samples as they arrive (the audio of the
     // computer): `count` more of them at `rate` per second, in volts. The
     // source runs a few tens of milliseconds behind, so that the
     // simulation always has the sample it asks for.
     void push_stream(const std::string &source, const float *samples, size_t count, double rate);
+
+    // The logic gates, the delay lines and the island of the circuit, which
+    // the session computes between the time points of the simulator
+    // (sim/digital.h). Those that were there keep their state.
+    void set_digital(const core::Digital &digital);
 
     // The vectors the bench wants sampled ("n3", "vd1#branch").
     void set_watches(const std::vector<std::string> &vectors);
@@ -63,6 +73,10 @@ public:
     // Simulated seconds since the first circuit; the simulation runs up to
     // the target and waits there.
     double time() const;
+    // Time points the simulator has accepted since the session started.
+    int64_t steps() const;
+    // Samples the delay lines have taken since the session started.
+    int64_t clocks() const;
     void set_target(double seconds);
 
     static constexpr int64_t sample_ns = 20000;   // 50 kS/s

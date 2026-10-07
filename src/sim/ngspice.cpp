@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "sim/ngspice.h"
 
+#include "sim/digital.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -106,6 +108,11 @@ struct Source {
     double end = 0.0;
 };
 
+struct Resistance {
+    std::string name;
+    double ohms;
+};
+
 constexpr double stream_delay = 0.03;   // seconds a stream runs behind the simulation
 
 constexpr double sample_seconds = static_cast<double>(Ngspice::sample_ns) / 1e9;
@@ -142,6 +149,7 @@ struct Ngspice::Impl {
     double run_time = 0.0;      // where it got to
     double base = 0.0;          // simulated seconds before this run
     double target = 0.0;
+    int64_t steps = 0;
 
     std::vector<std::string> names;   // the vectors of the run
     std::vector<double> latest;
@@ -157,6 +165,9 @@ struct Ngspice::Impl {
     int64_t next_sample = 0;
 
     std::vector<Source> sources;
+    std::vector<Resistance> resistances;   // as the bench last gave them
+    std::vector<Resistance> altered;       // those the running circuit does not have yet
+    DigitalEngine digital;   // the gates, the delay lines and the island of the circuit
     int ident = 0;
     // RTR_BENCH_SIM_TRACE in the environment: everything ngspice says goes to stderr.
     const bool trace = std::getenv("RTR_BENCH_SIM_TRACE") != nullptr;
@@ -164,6 +175,7 @@ struct Ngspice::Impl {
     bool load_library();
     void main();
     void halt_run(std::unique_lock<std::mutex> &lock);
+    void alter_run(std::unique_lock<std::mutex> &lock);
     void start_run(std::unique_lock<std::mutex> &lock, bool carry);
     void command(const char *text) const;
     void map_watches();
@@ -307,6 +319,7 @@ void Ngspice::Impl::on_data(VecValuesAll *all)
         }
         latest.assign(count, 0.0);
         map_watches();
+        digital.map(names);
         fresh = false;
     }
     if (time_index < 0) {
@@ -316,7 +329,9 @@ void Ngspice::Impl::on_data(VecValuesAll *all)
         latest[i] = all->values[i]->real;
     }
     run_time = latest[static_cast<size_t>(time_index)];
+    steps++;
     const double total = base + run_time;
+    digital.accept(total, latest);
 
     current.resize(watches.size());
     for (size_t w = 0; w < watches.size(); w++) {
@@ -351,6 +366,10 @@ double Ngspice::Impl::source_volts(const char *name, double seconds)
 {
     const std::string wanted = lower(name);
     std::lock_guard<std::mutex> lock(mutex);
+    double digital_volts = 0.0;
+    if (digital.source(wanted, base + seconds, digital_volts)) {
+        return digital_volts;
+    }
     for (const Source &s : sources) {
         if (s.name == wanted) {
             if (s.stream) {
@@ -404,6 +423,41 @@ void Ngspice::Impl::halt_run(std::unique_lock<std::mutex> &lock)
     base += run_time;
     run_time = 0.0;
     started = false;
+}
+
+// Gives the running circuit the resistances that changed: the run stops
+// where it is, takes them and goes on. The lines of the circuit take them
+// too, for the runs that follow.
+void Ngspice::Impl::alter_run(std::unique_lock<std::mutex> &lock)
+{
+    std::vector<Resistance> list;
+    list.swap(altered);
+    for (const Resistance &r : list) {
+        for (std::string &line : lines) {
+            if (line.compare(0, r.name.size() + 1, r.name + " ") == 0) {
+                line = line.substr(0, line.rfind(' ') + 1) + number_text(r.ohms);
+            }
+        }
+    }
+    if (!started) {
+        return;
+    }
+    halt = true;
+    cv.notify_all();
+    lock.unlock();
+    if (api.running()) {
+        command("bg_halt");
+    }
+    for (int i = 0; i < 2000 && api.running(); i++) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    for (const Resistance &r : list) {
+        command(("alter " + r.name + "=" + number_text(r.ohms)).c_str());
+    }
+    command("bg_resume");
+    lock.lock();
+    halt = false;
+    started_at = std::chrono::steady_clock::now();
 }
 
 void Ngspice::Impl::start_run(std::unique_lock<std::mutex> &lock, bool carry)
@@ -475,6 +529,10 @@ void Ngspice::Impl::main()
         cv.wait_for(lock, std::chrono::milliseconds(5), [&] { return quit || load_pending || stop_pending; });
         if (quit) {
             break;
+        }
+        if (!altered.empty() && !load_pending && !stop_pending) {
+            alter_run(lock);
+            continue;
         }
         // A run that ended by itself: at its stop time, or before it on an error.
         bool finished = started &&
@@ -582,6 +640,8 @@ void Ngspice::load(std::vector<std::string> lines, bool carry)
         impl_->pending_lines = std::move(lines);
         impl_->pending_carry = carry;
         impl_->load_pending = true;
+        impl_->resistances.clear();
+        impl_->altered.clear();
     }
     impl_->cv.notify_all();
 }
@@ -595,6 +655,9 @@ void Ngspice::stop()
         }
         impl_->load_pending = false;
         impl_->stop_pending = true;
+        // A circuit that is stopped forgets: the gates start again, and the
+        // delay lines are empty.
+        impl_->digital.reset();
     }
     impl_->cv.notify_all();
 }
@@ -606,6 +669,32 @@ void Ngspice::set_constant(const std::string &source, double volts)
     s.wave = false;
     s.stream = false;
     s.volts = volts;
+}
+
+void Ngspice::set_resistance(const std::string &resistor, double ohms)
+{
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    if (impl_->digital.set_resistance(resistor, ohms)) {
+        return;   // of the island: not in the netlist
+    }
+    for (Resistance &r : impl_->resistances) {
+        if (r.name != resistor) {
+            continue;
+        }
+        if (std::fabs(r.ohms - ohms) <= 1e-9 * r.ohms) {
+            return;
+        }
+        r.ohms = ohms;
+        for (Resistance &a : impl_->altered) {
+            if (a.name == resistor) {
+                a.ohms = ohms;
+                return;
+            }
+        }
+        impl_->altered.push_back(r);
+        return;
+    }
+    impl_->resistances.push_back(Resistance{resistor, ohms});
 }
 
 void Ngspice::push_stream(const std::string &source, const float *samples, size_t count, double rate)
@@ -633,6 +722,12 @@ void Ngspice::push_stream(const std::string &source, const float *samples, size_
     } else {
         s.end += span;
     }
+}
+
+void Ngspice::set_digital(const core::Digital &digital)
+{
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    impl_->digital.set(digital);
 }
 
 void Ngspice::set_wave(const std::string &source, const core::WaveSpec &spec, bool on)
@@ -677,6 +772,18 @@ double Ngspice::time() const
 {
     std::lock_guard<std::mutex> lock(impl_->mutex);
     return impl_->base + impl_->run_time;
+}
+
+int64_t Ngspice::steps() const
+{
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    return impl_->steps;
+}
+
+int64_t Ngspice::clocks() const
+{
+    std::lock_guard<std::mutex> lock(impl_->mutex);
+    return impl_->digital.clocks();
 }
 
 void Ngspice::set_target(double seconds)
